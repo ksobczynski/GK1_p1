@@ -12,6 +12,16 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 add_executable(p1
     src/main.cpp
+    src/model/Vertex.h
+    src/model/Edge.h
+    src/model/Polygon.h
+    src/model/Polygon.cpp
+    src/model/Scene.h
+    src/model/Scene.cpp
+    src/ui/CanvasWidget.h
+    src/ui/CanvasWidget.cpp
 )
 
 target_link_libraries(p1 PRIVATE Qt6::Widgets)
+
+target_include_directories(p1 PRIVATE src)
