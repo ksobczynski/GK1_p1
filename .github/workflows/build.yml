@@ -1,0 +1,92 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  QT_VERSION: "6.8.3"
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          cache: true
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Bundle Qt DLLs
+        run: |
+          mkdir dist
+          copy build\p1.exe dist\
+          windeployqt --release --no-translations --no-opengl-sw dist\p1.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p1-windows
+          path: dist/
+
+  linux:
+    # Older Ubuntu = older glibc = the AppImage runs on more distros
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: linux_gcc_64
+          cache: true
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Package AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+
+          cat > p1.desktop <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=p1
+          Exec=p1
+          Icon=p1
+          Categories=Graphics;
+          EOF
+          echo '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#3366cc"/></svg>' > p1.svg
+
+          export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir \
+            -e build/p1 -d p1.desktop -i p1.svg \
+            --plugin qt --output appimage
+          mv p1*.AppImage p1-x86_64.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p1-linux
+          path: p1-x86_64.AppImage
