@@ -4,12 +4,12 @@
 #include <stdexcept>
 
 namespace model {
-Polygon::Polygon(PolygonId id, const std::vector<Point>& points) : id_(id)
+Polygon::Polygon(PolygonId id, const std::vector<QPointF>& points) : id_(id)
 {
     if (points.size() < 3)
         throw std::invalid_argument("A polygon needs at least three vertices");
 
-    for (const Point& point : points)
+    for (const QPointF& point : points)
         vertices_.push_back({nextVertexId_++, point});
 
     for (std::size_t i = 0; i < vertices_.size(); ++i)
@@ -24,7 +24,7 @@ const Vertex* Polygon::findVertex(VertexId id) const
     return it == vertices_.end() ? nullptr : &*it;
 }
 
-bool Polygon::moveVertex(VertexId id, Point position)
+bool Polygon::moveVertex(VertexId id, QPointF position)
 {
     for (Vertex& vertex : vertices_) {
         if (vertex.id == id) {
@@ -37,10 +37,8 @@ bool Polygon::moveVertex(VertexId id, Point position)
 
 void Polygon::translate(double dx, double dy)
 {
-    for (Vertex& vertex : vertices_) {
-        vertex.position.x += dx;
-        vertex.position.y += dy;
-    }
+    for (Vertex& vertex : vertices_)
+        vertex.position += QPointF(dx, dy);
 }
 
 bool Polygon::insertVertexAtEdgeMidpoint(EdgeId id)
@@ -52,9 +50,9 @@ bool Polygon::insertVertexAtEdgeMidpoint(EdgeId id)
 
     const std::size_t index = static_cast<std::size_t>(it - edges_.begin());
     const Edge old = *it;
-    const Point a = vertices_[index].position;
-    const Point b = vertices_[(index + 1) % vertices_.size()].position;
-    const Vertex vertex{nextVertexId_++, {(a.x + b.x) / 2, (a.y + b.y) / 2}};
+    const QPointF a = vertices_[index].position;
+    const QPointF b = vertices_[(index + 1) % vertices_.size()].position;
+    const Vertex vertex{nextVertexId_++, (a + b) / 2};
     vertices_.insert(vertices_.begin() + index + 1, vertex);
 
     // Replace only the split edge; unrelated edge IDs remain valid.
@@ -81,4 +79,53 @@ bool Polygon::removeVertex(VertexId id)
     vertices_.erase(it);
     return true;
 }
+
+namespace {
+double cross(QPointF o, QPointF a, QPointF b)
+{
+    return (a.x() - o.x()) * (b.y() - o.y()) - (a.y() - o.y()) * (b.x() - o.x());
 }
+} // namespace
+
+bool Polygon::convexHullContains(QPointF point) const
+{
+    std::vector<QPointF> points;
+    points.reserve(vertices_.size());
+    for (const Vertex& vertex : vertices_)
+        points.push_back(vertex.position);
+
+    // Znalezienie poczatku otoczki
+    auto pivotIt = std::min_element(points.begin(), points.end(), [](QPointF a, QPointF b) {
+        return a.y() < b.y() || (a.y() == b.y() && a.x() < b.x());
+    });
+    std::iter_swap(points.begin(), pivotIt);
+    const QPointF pivot = points.front();
+
+    // Sortowanie przed Grahamem
+    std::sort(points.begin() + 1, points.end(), [pivot](QPointF a, QPointF b) {
+        const double turn = cross(pivot, a, b);
+        if (turn != 0)
+            return turn > 0;
+        const QPointF da = a - pivot;
+        const QPointF db = b - pivot;
+        return QPointF::dotProduct(da, da) < QPointF::dotProduct(db, db);
+    });
+
+    // Alg Grahama
+    std::vector<QPointF> hull;
+    for (QPointF p : points) {
+        while (hull.size() >= 2 && cross(hull[hull.size() - 2], hull.back(), p) <= 0)
+            hull.pop_back();
+        hull.push_back(p);
+    }
+
+    if (hull.size() < 3)
+        return false; // koliniowe wierzcholki, rzadki przypadek ale jest
+
+    // Sprawdzamy czy punkt wewnatrz wielokata - czy kazdy skret jest w prawo
+    for (std::size_t i = 0; i < hull.size(); ++i)
+        if (cross(hull[i], hull[(i + 1) % hull.size()], point) < 0)
+            return false;
+    return true;
+}
+} // namespace model

@@ -8,17 +8,18 @@ using PolygonId = std::uint64_t;
 
 class Polygon {
 public:
-    Polygon(PolygonId id, const std::vector<Point>& points);
+    Polygon(PolygonId id, const std::vector<QPointF>& points);
 
     PolygonId id() const { return id_; }
     const std::vector<Vertex>& vertices() const { return vertices_; }
     const std::vector<Edge>& edges() const { return edges_; }
     const Vertex* findVertex(VertexId id) const;
 
-    bool moveVertex(VertexId id, Point position);
+    bool moveVertex(VertexId id, QPointF position);
     void translate(double dx, double dy);
     bool insertVertexAtEdgeMidpoint(EdgeId id);
     bool removeVertex(VertexId id);
+    bool convexHullContains(QPointF point) const;
 
 private:
     PolygonId id_;

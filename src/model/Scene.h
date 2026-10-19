@@ -6,7 +6,7 @@ namespace model {
 // Element references across polygons should pair PolygonId with VertexId/EdgeId.
 class Scene {
 public:
-    PolygonId addPolygon(const std::vector<Point>& points);
+    PolygonId addPolygon(const std::vector<QPointF>& points);
     const std::vector<Polygon>& polygons() const { return polygons_; }
     Polygon* findPolygon(PolygonId id);
     static Scene createDemo();
