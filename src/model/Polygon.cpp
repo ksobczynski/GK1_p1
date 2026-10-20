@@ -24,6 +24,13 @@ const Vertex* Polygon::findVertex(VertexId id) const
     return it == vertices_.end() ? nullptr : &*it;
 }
 
+const Edge* Polygon::findEdge(EdgeId id) const
+{
+    auto it = std::find_if(edges_.begin(), edges_.end(),
+                           [id](const Edge& e) { return e.id == id; });
+    return it == edges_.end() ? nullptr : &*it;
+}
+
 bool Polygon::moveVertex(VertexId id, QPointF position)
 {
     for (Vertex& vertex : vertices_) {

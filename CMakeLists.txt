@@ -15,6 +15,7 @@ add_executable(p1
     src/main.cpp
     src/model/Vertex.h
     src/model/Edge.h
+    src/model/Constraint.h
     src/model/Polygon.h
     src/model/Polygon.cpp
     src/model/Scene.h

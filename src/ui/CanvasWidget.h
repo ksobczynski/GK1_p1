@@ -18,19 +18,21 @@ protected:
 
 
 private:
+    struct Hit {
+        enum class Kind { Vertex, Edge, Interior };
+        Kind kind;
+        model::PolygonId polygon;
+        model::VertexId vertex = 0;
+        model::EdgeId edge = 0;
+    };
+
     struct DragState {
-        model::PolygonId polygon;
-        std::optional<model::VertexId> vertex; // pusty oznacza przeciagaie wielokata
-        QPointF lastPosition;                  // ostatnia pozycja myszy w czasie przeciagania
+        Hit target;
+        QPointF lastPosition; 
     };
 
-    struct EdgeHit {
-        model::PolygonId polygon;
-        model::EdgeId edge;
-    };
-
-    std::optional<DragState> hitTest(QPointF position) const;
-    std::optional<EdgeHit> hitTestEdge(QPointF position) const;
+    std::optional<Hit> hitTest(QPointF position) const;
+    void drawConstraintLabels(QPainter& painter) const;
     model::Scene& scene_;
     std::optional<DragState> dragState_;
 };
