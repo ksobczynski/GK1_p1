@@ -1,7 +1,7 @@
 #include "Scene.h"
 
 namespace model {
-PolygonId Scene::addPolygon(const std::vector<Point>& points)
+PolygonId Scene::addPolygon(const std::vector<QPointF>& points)
 {
     const PolygonId id = nextPolygonId_;
     polygons_.emplace_back(id, points);
