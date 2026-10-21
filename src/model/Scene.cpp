@@ -18,6 +18,29 @@ Polygon* Scene::findPolygon(PolygonId id)
     return nullptr;
 }
 
+const Polygon* Scene::findPolygon(PolygonId id) const
+{
+    for (const Polygon& polygon : polygons_)
+        if (polygon.id() == id)
+            return &polygon;
+
+    return nullptr;
+}
+
+ConstraintId Scene::setLengthConstraint(EdgeRef edge, double length)
+{
+    for (Constraint& constraint : constraints_) {
+        if (constraint.type == ConstraintType::Length && constraint.first == edge) {
+            constraint.length = length;
+            return constraint.id;
+        }
+    }
+
+    const ConstraintId id = nextConstraintId_++;
+    constraints_.push_back({id, ConstraintType::Length, edge, std::nullopt, length});
+    return id;
+}
+
 Scene Scene::createDemo()
 {
     Scene scene;

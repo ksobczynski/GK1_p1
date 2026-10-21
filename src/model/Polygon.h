@@ -14,6 +14,7 @@ public:
     const std::vector<Vertex>& vertices() const { return vertices_; }
     const std::vector<Edge>& edges() const { return edges_; }
     const Vertex* findVertex(VertexId id) const;
+    const Edge* findEdge(EdgeId id) const;
 
     bool moveVertex(VertexId id, QPointF position);
     void translate(double dx, double dy);
@@ -26,7 +27,6 @@ private:
     VertexId nextVertexId_ = 1;
     EdgeId nextEdgeId_ = 1;
     std::vector<Vertex> vertices_;
-    // Edge i connects vertex i to vertex (i + 1) modulo vertex count.
     std::vector<Edge> edges_;
 };
 } // namespace model
