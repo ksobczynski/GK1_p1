@@ -1,4 +1,6 @@
 #include "CanvasWidget.h"
+#include "model/Constraint.h"
+#include "model/Edge.h"
 #include <QContextMenuEvent>
 #include <QInputDialog>
 #include <QMenu>
@@ -169,9 +171,17 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
       update();
     }
   } else if (hit->kind == Hit::Kind::Edge) {
-    QAction *lengthAction = menu.addAction("Ustaw dlugosc...");
+    const model::EdgeRef edgeRef{hit->polygon, hit->edge};
 
-    if (menu.exec(event->globalPos()) == lengthAction) {
+    QAction *lengthAction = menu.addAction("Ustaw dlugosc...");
+    QAction *removeLengthAction = menu.addAction("Usun ograniczenie długości");
+
+    removeLengthAction->setEnabled(
+        scene_.lengthConstraint(edgeRef).has_value());
+
+    QAction *chosen = menu.exec(event->globalPos());
+
+    if (chosen == lengthAction) {
       const model::Edge *edge = polygon->findEdge(hit->edge);
       const QPointF a = polygon->findVertex(edge->start)->position;
       const QPointF b = polygon->findVertex(edge->end)->position;
@@ -188,6 +198,9 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
                                "Nie da się spełnić długości krawedzi");
         update();
       }
+    } else if (chosen == removeLengthAction) {
+      scene_.removeLengthConstraint(edgeRef);
+      update();
     }
   }
 }

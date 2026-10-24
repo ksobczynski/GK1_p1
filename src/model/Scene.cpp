@@ -55,16 +55,17 @@ ConstraintId Scene::setLengthConstraint(EdgeRef edgeRef, double length) {
   if (!e)
     return 0;
 
-  const Polygon polygonBackup = *polygon;
-  const std::vector<Constraint> constraintsBackup = constraints_;
-  const ConstraintId nextIdBackup = nextConstraintId_;
+  // const Polygon polygonBackup = *polygon;
+  // const std::vector<Constraint> constraintsBackup = constraints_;
+  // const ConstraintId nextIdBackup = nextConstraintId_;
+  const Scene backup = *this;
   ConstraintId id = 0;
   for (Constraint &constraint : constraints_) {
     if (constraint.type == ConstraintType::Length &&
         constraint.first == edgeRef) {
       constraint.length = length;
       id = constraint.id;
-      return constraint.id;
+      break;
     }
   }
 
@@ -80,17 +81,17 @@ ConstraintId Scene::setLengthConstraint(EdgeRef edgeRef, double length) {
   const std::size_t endIndex = (startIndex + 1) % n;
   const QPointF a = polygon->vertices()[startIndex].position;
   const QPointF b = polygon->vertices()[endIndex].position;
+  const auto before = polygon->vertices();
+
   polygon->moveVertex(polygon->vertices()[endIndex].id,
                       pointAtDistance(a, b, length));
 
   std::vector<bool> fixed(n, false);
   fixed[startIndex] = true;
-  enforceLengths(*polygon, endIndex, fixed);
+  propagate(*polygon, before, {endIndex}, fixed);
 
   if (!lengthsSatisfied(*polygon)) {
-    *polygon = polygonBackup;
-    constraints_ = constraintsBackup;
-    nextConstraintId_ = nextIdBackup;
+    *this = backup;
     return 0;
   }
 
@@ -99,8 +100,13 @@ ConstraintId Scene::setLengthConstraint(EdgeRef edgeRef, double length) {
 
 Scene Scene::createDemo() {
   Scene scene;
-  scene.addPolygon({{100, 100}, {330, 130}, {290, 330}, {130, 280}});
+  const PolygonId quad =
+      scene.addPolygon({{100, 100}, {330, 130}, {290, 330}, {130, 280}});
   scene.addPolygon({{470, 120}, {730, 330}, {470, 330}, {730, 120}});
+
+  const std::vector<Edge> &edges = scene.findPolygon(quad)->edges();
+  scene.setLengthConstraint({quad, edges[0].id}, 230);
+  scene.setLengthConstraint({quad, edges[1].id}, 200);
   return scene;
 }
 
@@ -129,9 +135,12 @@ void Scene::moveVertex(PolygonId polygonId, VertexId vertexId,
 
   const std::size_t index =
       static_cast<std::size_t>(vertex - polygon->vertices().data());
+  const auto before = polygon->vertices();
   polygon->moveVertex(vertexId, position);
-  enforceLengths(*polygon, index,
-                 std::vector<bool>(polygon->vertices().size(), false));
+  propagate(*polygon, before, {index},
+            std::vector<bool>(polygon->vertices().size(), false));
+  // enforceLengths(*polygon, index,
+  //                std::vector<bool>(polygon->vertices().size(), false));
 }
 
 void Scene::enforceLengths(Polygon &polygon, std::size_t origin,
@@ -171,7 +180,7 @@ bool Scene::allEdgesHaveLength(const Polygon &polygon) const {
 }
 
 bool Scene::lengthsSatisfied(const Polygon &polygon) const {
-  constexpr double tolerance = 1e-3;
+  constexpr double tolerance = 1e-2;
   for (const Edge &edge : polygon.edges()) {
     const std::optional<double> length =
         lengthConstraint({polygon.id(), edge.id});
@@ -219,5 +228,48 @@ bool Scene::removeVertex(PolygonId polygonId, VertexId vertexId) {
   removeConstraintsOf({polygonId, incoming});
   removeConstraintsOf({polygonId, outgoing});
   return true;
+}
+
+void Scene::removeLengthConstraint(EdgeRef edge) {
+  constraints_.erase(std::remove_if(constraints_.begin(), constraints_.end(),
+                                    [&](const Constraint &c) {
+                                      return c.type == ConstraintType::Length &&
+                                             c.first == edge;
+                                    }),
+                     constraints_.end());
+}
+
+void Scene::propagate(Polygon &polygon, const std::vector<Vertex> &before,
+                      std::vector<std::size_t> queue, std::vector<bool> fixed) {
+  const std::size_t n = polygon.vertices().size();
+  for (const std::size_t i : queue)
+    fixed[i] = true;
+
+  for (std::size_t q = 0; q < queue.size(); ++q) {
+    const std::size_t current = queue[q];
+    const std::size_t prev = (current + n - 1) % n;
+    const std::size_t next = (current + 1) % n;
+
+    const std::pair<std::size_t, std::size_t> neighbours[] = {{next, current},
+                                                              {prev, prev}};
+    for (const auto &[neighbour, edgeIndex] : neighbours) {
+      if (fixed[neighbour])
+        continue;
+      const EdgeRef edge{polygon.id(), polygon.edges()[edgeIndex].id};
+      const std::optional<double> length = lengthConstraint(edge);
+      if (!length)
+        continue;
+      const QPointF a = polygon.vertices()[current].position;
+      const QPointF b = polygon.vertices()[neighbour].position;
+      if (std::abs(distance(a, b) - *length) < lengthEpsilon)
+        continue;
+
+      polygon.moveVertex(polygon.vertices()[neighbour].id,
+                         pointAtDistance(a, b, *length));
+      fixed[neighbour] = true;
+      queue.push_back(neighbour);
+    }
+  }
+  (void)before;
 }
 } // namespace model

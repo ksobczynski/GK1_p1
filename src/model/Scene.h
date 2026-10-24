@@ -25,10 +25,13 @@ public:
 
   bool insertVertexAtMidpoint(PolygonId polygon, EdgeId edge);
   bool removeVertex(PolygonId polygon, VertexId vertex);
+  void removeLengthConstraint(EdgeRef edge);
 
 private:
   void enforceLengths(Polygon &polygon, std::size_t origin,
                       std::vector<bool> fixed);
+  void propagate(Polygon &polygon, const std::vector<Vertex> &before,
+                 std::vector<std::size_t> queue, std::vector<bool> fixed);
   bool allEdgesHaveLength(const Polygon &polygon) const;
   bool lengthsSatisfied(const Polygon &polygon) const;
   void removeConstraintsOf(EdgeRef edge);
