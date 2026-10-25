@@ -24,11 +24,12 @@ protected:
 
 private:
   struct Hit {
-    enum class Kind { Vertex, Edge, Interior };
+    enum class Kind { Vertex, ControlPoint, Edge, Interior };
     Kind kind;
     model::PolygonId polygon;
     model::VertexId vertex = 0;
     model::EdgeId edge = 0;
+    std::size_t control = 0;
   };
 
   struct DragState {

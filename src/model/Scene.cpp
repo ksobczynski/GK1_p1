@@ -1,5 +1,6 @@
 #include "Scene.h"
 #include "model/Constraint.h"
+#include "model/Edge.h"
 #include "model/Polygon.h"
 
 #include <algorithm>
@@ -53,7 +54,7 @@ ConstraintId Scene::setLengthConstraint(EdgeRef edgeRef, double length) {
   Polygon *polygon = findPolygon(edgeRef.polygon);
   const Edge *e = polygon ? polygon->findEdge(edgeRef.edge) : nullptr;
 
-  if (!e)
+  if (!e || e->kind != EdgeKind::Segment)
     return 0;
 
   // const Polygon polygonBackup = *polygon;
@@ -107,6 +108,12 @@ Scene Scene::createDemo() {
       scene.addPolygon({{470, 120}, {730, 330}, {470, 330}, {730, 120}});
 
   const std::vector<Edge> &edges = scene.findPolygon(quad)->edges();
+
+  const model::EdgeRef curve{quad, edges[2].id};
+  scene.setEdgeKind(curve, EdgeKind::Bezier);
+  scene.moveControlPoint(curve, 0, {260, 420});
+  scene.moveControlPoint(curve, 1, {140, 420});
+
   const auto &bowtieEdges = scene.findPolygon(bowtie)->edges();
   scene.setLengthConstraint({quad, edges[0].id}, 230);
   scene.setLengthConstraint({quad, edges[1].id}, 200);
@@ -301,6 +308,9 @@ bool Scene::hasOrthogonalConstraint(EdgeRef edge) const {
 }
 
 ConstraintId Scene::setOrthogonalConstraint(EdgeRef first, EdgeRef second) {
+
+  if (!isSegment(first) || !isSegment(second))
+    return 0;
   const std::optional<QPointF> u = edgeVector(first);
   const std::optional<QPointF> v = edgeVector(second);
   if (!u || !v || first == second)
@@ -440,4 +450,25 @@ void Scene::removeConstraint(ConstraintId id) {
       constraints_.end());
 }
 
+bool Scene::isSegment(EdgeRef ref) const {
+  const Polygon *polygon = findPolygon(ref.polygon);
+  if (!polygon)
+    return false;
+  const Edge *edge = polygon->findEdge(ref.edge);
+  return edge && edge->kind == EdgeKind::Segment;
+}
+
+bool Scene::setEdgeKind(EdgeRef ref, EdgeKind kind) {
+  Polygon *polygon = findPolygon(ref.polygon);
+  if (!polygon || !polygon->setEdgeKind(ref.edge, kind))
+    return false;
+  if (kind != EdgeKind::Segment)
+    removeConstraintsOf(ref);
+  return true;
+}
+
+void Scene::moveControlPoint(EdgeRef ref, std::size_t index, QPointF position) {
+  if (Polygon *polygon = findPolygon(ref.polygon))
+    polygon->moveControlPoint(ref.edge, index, position);
+}
 } // namespace model

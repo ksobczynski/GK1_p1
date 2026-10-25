@@ -1,5 +1,4 @@
 #include "model/Scene.h"
-#include "ui/CanvasWidget.h"
 #include "ui/MainWindow.h"
 #include <QApplication>
 

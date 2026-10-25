@@ -2,6 +2,7 @@
 #include "model/Constraint.h"
 #include "model/Edge.h"
 #include "model/Polygon.h"
+#include "render/Bezier.h"
 #include "render/LineDrawing.h"
 #include <QContextMenuEvent>
 #include <QInputDialog>
@@ -12,6 +13,9 @@
 #include <QPainter>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <limits>
+#include <vector>
 namespace {
 void drawEdgeLabel(QPainter &painter, QPointF a, QPointF b, const QString &text,
                    double offset) {
@@ -40,8 +44,28 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
     for (const model::Edge &edge : polygon.edges()) {
       const QPointF a = polygon.findVertex(edge.start)->position;
       const QPointF b = polygon.findVertex(edge.end)->position;
-      render::drawSegment(painter, a, b, lineAlgorithm_);
+      if (edge.kind == model::EdgeKind::Bezier)
+        render::drawBezier(painter, a, edge.controls[0], edge.controls[1], b);
+      else
+        render::drawSegment(painter, a, b, lineAlgorithm_);
     }
+    painter.save();
+    painter.setPen(QPen(Qt::gray, 1, Qt::DashLine));
+    painter.setBrush(Qt::gray);
+    for (const model::Edge &edge : polygon.edges()) {
+      if (edge.kind != model::EdgeKind::Bezier)
+        continue;
+      const QPointF a = polygon.findVertex(edge.start)->position;
+      const QPointF b = polygon.findVertex(edge.end)->position;
+      const QPointF c0 = edge.controls[0];
+      const QPointF c1 = edge.controls[1];
+      painter.drawLine(a, c0);
+      painter.drawLine(c0, c1);
+      painter.drawLine(c1, b);
+      for (const QPointF &control : edge.controls)
+        painter.drawEllipse(control, 4, 4);
+    }
+    painter.restore();
 
     painter.setPen(Qt::black);
     painter.setBrush(Qt::white);
@@ -119,13 +143,36 @@ std::optional<CanvasWidget::Hit> CanvasWidget::hitTest(QPointF position) const {
         return Hit{Hit::Kind::Vertex, polygon.id(), vertex.id, 0};
     }
   }
+  for (const model::Polygon &polygon : polygons) {
+    for (const model::Edge &edge : polygon.edges()) {
+      if (edge.kind != model::EdgeKind::Bezier)
+        continue;
+      for (std::size_t i = 0; i < edge.controls.size(); i++) {
+        const QPointF d = edge.controls[i] - position;
+        if (QPointF::dotProduct(d, d) <= vertexRadius * vertexRadius)
+          return Hit{Hit::Kind::ControlPoint, polygon.id(), 0, edge.id, i};
+      }
+    }
+  }
 
   for (const model::Polygon &polygon : polygons) {
     for (const model::Edge &edge : polygon.edges()) {
       const QPointF a = polygon.findVertex(edge.start)->position;
       const QPointF b = polygon.findVertex(edge.end)->position;
-      if (squaredDistanceToSegment(position, a, b) <=
-          edgeDistance * edgeDistance)
+      double distanceSquared;
+      if (edge.kind == model::EdgeKind::Bezier) {
+        const std::vector<QPointF> points =
+            render::bezierPoints(a, edge.controls[0], edge.controls[1], b);
+        distanceSquared = std::numeric_limits<double>::max();
+        for (std::size_t i = 1; i < points.size(); i++) {
+          distanceSquared = std::min(
+              distanceSquared,
+              squaredDistanceToSegment(position, points[i - 1], points[i]));
+        }
+      } else {
+        distanceSquared = squaredDistanceToSegment(position, a, b);
+      }
+      if (distanceSquared <= edgeDistance * edgeDistance)
         return Hit{Hit::Kind::Edge, polygon.id(), 0, edge.id};
     }
   }
@@ -178,6 +225,12 @@ void CanvasWidget::mouseMoveEvent(QMouseEvent *event) {
     polygon->translate(delta.x(), delta.y());
     break;
   }
+  case Hit::Kind::ControlPoint: {
+    scene_.moveControlPoint(
+        {dragState_->target.polygon, dragState_->target.edge},
+        dragState_->target.control, position);
+    break;
+  }
   }
   dragState_->lastPosition = position;
   update();
@@ -211,6 +264,11 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
   } else if (hit->kind == Hit::Kind::Edge) {
     const model::EdgeRef edgeRef{hit->polygon, hit->edge};
 
+    const model::Edge *edge = polygon->findEdge(hit->edge);
+    const bool bezier = edge->kind == model::EdgeKind::Bezier;
+    QAction *kindAction = menu.addAction(bezier ? "zamień na odcinek"
+                                                : "zamień na krzywą beziera");
+
     QAction *lengthAction = menu.addAction("Ustaw dlugosc...");
     QAction *removeLengthAction = menu.addAction("Usun ograniczenie długości");
 
@@ -218,6 +276,9 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
         scene_.lengthConstraint(edgeRef).has_value());
 
     QAction *orthogonalAction = menu.addAction("Prostopadła do...");
+
+    lengthAction->setEnabled(!bezier);
+    orthogonalAction->setEnabled(!bezier);
 
     for (const model::Constraint &c : scene_.constraints()) {
       if (c.type != model::ConstraintType::Orthogonal || !c.involves(edgeRef))
@@ -230,7 +291,6 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
     QAction *chosen = menu.exec(event->globalPos());
 
     if (chosen == lengthAction) {
-      const model::Edge *edge = polygon->findEdge(hit->edge);
       const QPointF a = polygon->findVertex(edge->start)->position;
       const QPointF b = polygon->findVertex(edge->end)->position;
       const double currentLength = std::hypot(b.x() - a.x(), b.y() - a.y());
@@ -251,6 +311,10 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
       update();
     } else if (chosen == orthogonalAction) {
       pendingOrthogonal_ = edgeRef;
+      update();
+    } else if (chosen == kindAction) {
+      scene_.setEdgeKind(edgeRef, bezier ? model::EdgeKind::Segment
+                                         : model::EdgeKind::Bezier);
       update();
     } else if (chosen && chosen->data().isValid()) {
       scene_.removeConstraint(chosen->data().toULongLong());

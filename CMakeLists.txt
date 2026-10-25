@@ -26,6 +26,8 @@ add_executable(p1
     src/render/LineDrawing.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
+    src/render/Bezier.h
+    src/render/Bezier.cpp
 )
 
 target_link_libraries(p1 PRIVATE Qt6::Widgets)

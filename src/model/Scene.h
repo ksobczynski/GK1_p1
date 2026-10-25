@@ -30,6 +30,9 @@ public:
   ConstraintId setOrthogonalConstraint(EdgeRef first, EdgeRef second);
   void removeConstraint(ConstraintId id);
 
+  bool setEdgeKind(EdgeRef edge, EdgeKind kind);
+  void moveControlPoint(EdgeRef edge, std::size_t index, QPointF position);
+
 private:
   // void enforceLengths(Polygon &polygon, std::size_t origin,
   // std::vector<bool> fixed);
@@ -45,6 +48,8 @@ private:
   bool constraintsSatisfied() const;
 
   void rotatePerpendicular(EdgeRef ref, QPointF reference, bool pivotAtStart);
+
+  bool isSegment(EdgeRef edge) const;
   PolygonId nextPolygonId_ = 1;
   std::vector<Polygon> polygons_;
   ConstraintId nextConstraintId_ = 1;

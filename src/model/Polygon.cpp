@@ -1,4 +1,5 @@
 #include "Polygon.h"
+#include "model/Edge.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -41,6 +42,12 @@ bool Polygon::moveVertex(VertexId id, QPointF position) {
 void Polygon::translate(double dx, double dy) {
   for (Vertex &vertex : vertices_)
     vertex.position += QPointF(dx, dy);
+
+  for (Edge &edge : edges_) {
+    for (QPointF &control : edge.controls) {
+      control += QPointF(dx, dy);
+    }
+  }
 }
 
 bool Polygon::insertVertexAtEdgeMidpoint(EdgeId id) {
@@ -127,6 +134,36 @@ bool Polygon::convexHullContains(QPointF point) const {
   for (std::size_t i = 0; i < hull.size(); ++i)
     if (cross(hull[i], hull[(i + 1) % hull.size()], point) < 0)
       return false;
+  return true;
+}
+
+Edge *Polygon::findEdgeMutable(EdgeId id) {
+  auto it = std::find_if(edges_.begin(), edges_.end(),
+                         [id](const Edge &e) { return e.id == id; });
+  return it == edges_.end() ? nullptr : &*it;
+}
+
+bool Polygon::setEdgeKind(EdgeId id, EdgeKind kind) {
+  Edge *edge = findEdgeMutable(id);
+  if (!edge)
+    return false;
+  if (edge->kind == kind)
+    return true;
+
+  edge->kind = kind;
+  if (kind == EdgeKind::Bezier) {
+    const QPointF a = findVertex(edge->start)->position;
+    const QPointF b = findVertex(edge->end)->position;
+    edge->controls = {a + (b - a) / 3, a + 2 * (b - a) / 3};
+  }
+  return true;
+}
+
+bool Polygon::moveControlPoint(EdgeId id, std::size_t index, QPointF position) {
+  Edge *edge = findEdgeMutable(id);
+  if (!edge || edge->kind != EdgeKind::Bezier || index >= edge->controls.size())
+    return false;
+  edge->controls[index] = position;
   return true;
 }
 } // namespace model
