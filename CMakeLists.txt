@@ -22,6 +22,10 @@ add_executable(p1
     src/model/Scene.cpp
     src/ui/CanvasWidget.h
     src/ui/CanvasWidget.cpp
+    src/render/LineDrawing.h
+    src/render/LineDrawing.cpp
+    src/ui/MainWindow.h
+    src/ui/MainWindow.cpp
 )
 
 target_link_libraries(p1 PRIVATE Qt6::Widgets)

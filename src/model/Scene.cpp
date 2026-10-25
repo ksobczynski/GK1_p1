@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace model {
 namespace {
@@ -90,7 +91,7 @@ ConstraintId Scene::setLengthConstraint(EdgeRef edgeRef, double length) {
   fixed[startIndex] = true;
   propagate(*polygon, before, {endIndex}, fixed);
 
-  if (!lengthsSatisfied(*polygon)) {
+  if (!constraintsSatisfied()) {
     *this = backup;
     return 0;
   }
@@ -101,12 +102,17 @@ ConstraintId Scene::setLengthConstraint(EdgeRef edgeRef, double length) {
 Scene Scene::createDemo() {
   Scene scene;
   const PolygonId quad =
-      scene.addPolygon({{100, 100}, {330, 130}, {290, 330}, {130, 280}});
-  scene.addPolygon({{470, 120}, {730, 330}, {470, 330}, {730, 120}});
+      scene.addPolygon({{100, 100}, {330, 130}, {290, 330}, {100, 330}});
+  const PolygonId bowtie =
+      scene.addPolygon({{470, 120}, {730, 330}, {470, 330}, {730, 120}});
 
   const std::vector<Edge> &edges = scene.findPolygon(quad)->edges();
+  const auto &bowtieEdges = scene.findPolygon(bowtie)->edges();
   scene.setLengthConstraint({quad, edges[0].id}, 230);
   scene.setLengthConstraint({quad, edges[1].id}, 200);
+  // pionowa krawedz czworokata _|_ pozioma krawedz muszki
+  scene.setOrthogonalConstraint({quad, edges[3].id},
+                                {bowtie, bowtieEdges[1].id});
   return scene;
 }
 
@@ -127,80 +133,85 @@ void Scene::moveVertex(PolygonId polygonId, VertexId vertexId,
   const Vertex *vertex = polygon ? polygon->findVertex(vertexId) : nullptr;
   if (!vertex)
     return;
-  if (allEdgesHaveLength(*polygon)) {
-    auto delta = position - vertex->position;
-    polygon->translate(delta.x(), delta.y());
-    return;
-  }
-
+  // if (allEdgesHaveLength(*polygon)) {
+  //   auto delta = position - vertex->position;
+  //   polygon->translate(delta.x(), delta.y());
+  //   return;
+  // }
   const std::size_t index =
       static_cast<std::size_t>(vertex - polygon->vertices().data());
-  const auto before = polygon->vertices();
+
+  const QPointF delta = position - vertex->position;
+  const Polygon backup = *polygon;
+  // const auto before = polygon->vertices();
   polygon->moveVertex(vertexId, position);
-  propagate(*polygon, before, {index},
+  propagate(*polygon, backup.vertices(), {index},
             std::vector<bool>(polygon->vertices().size(), false));
   // enforceLengths(*polygon, index,
   //                std::vector<bool>(polygon->vertices().size(), false));
-}
 
-void Scene::enforceLengths(Polygon &polygon, std::size_t origin,
-                           std::vector<bool> fixed) {
-  const std::size_t n = polygon.vertices().size();
-  fixed[origin] = true;
-
-  for (const bool forward : {true, false}) {
-    std::size_t current = origin;
-    while (true) {
-      const std::size_t next =
-          forward ? (current + 1) % n : (current + n - 1) % n;
-      const Edge &edge = polygon.edges()[forward ? current : next];
-      const std::optional<double> length =
-          lengthConstraint({polygon.id(), edge.id});
-      if (!length || fixed[next])
-        break;
-
-      const QPointF a = polygon.vertices()[current].position;
-      const QPointF b = polygon.vertices()[next].position;
-      if (std::abs(distance(a, b) - *length) < lengthEpsilon)
-        break;
-
-      polygon.moveVertex(polygon.vertices()[next].id,
-                         pointAtDistance(a, b, *length));
-      fixed[next] = true;
-      current = next;
-    }
+  if (!constraintsSatisfied()) {
+    *polygon = backup;
+    polygon->translate(delta.x(), delta.y());
   }
 }
 
-bool Scene::allEdgesHaveLength(const Polygon &polygon) const {
-  return std::all_of(
-      polygon.edges().begin(), polygon.edges().end(), [&](const Edge &edge) {
-        return lengthConstraint({polygon.id(), edge.id}).has_value();
-      });
-}
+// void Scene::enforceLengths(Polygon &polygon, std::size_t origin,
+//                            std::vector<bool> fixed) {
+//   const std::size_t n = polygon.vertices().size();
+//   fixed[origin] = true;
 
-bool Scene::lengthsSatisfied(const Polygon &polygon) const {
-  constexpr double tolerance = 1e-2;
-  for (const Edge &edge : polygon.edges()) {
-    const std::optional<double> length =
-        lengthConstraint({polygon.id(), edge.id});
-    if (!length)
-      continue;
-    const QPointF a = polygon.findVertex(edge.start)->position;
-    const QPointF b = polygon.findVertex(edge.end)->position;
-    if (std::abs(distance(a, b) - *length) > tolerance)
-      return false;
-  }
-  return true;
-}
+//   for (const bool forward : {true, false}) {
+//     std::size_t current = origin;
+//     while (true) {
+//       const std::size_t next =
+//           forward ? (current + 1) % n : (current + n - 1) % n;
+//       const Edge &edge = polygon.edges()[forward ? current : next];
+//       const std::optional<double> length =
+//           lengthConstraint({polygon.id(), edge.id});
+//       if (!length || fixed[next])
+//         break;
+
+//       const QPointF a = polygon.vertices()[current].position;
+//       const QPointF b = polygon.vertices()[next].position;
+//       if (std::abs(distance(a, b) - *length) < lengthEpsilon)
+//         break;
+
+//       polygon.moveVertex(polygon.vertices()[next].id,
+//                          pointAtDistance(a, b, *length));
+//       fixed[next] = true;
+//       current = next;
+//     }
+//   }
+// }
+
+// bool Scene::allEdgesHaveLength(const Polygon &polygon) const {
+//   return std::all_of(
+//       polygon.edges().begin(), polygon.edges().end(), [&](const Edge &edge) {
+//         return lengthConstraint({polygon.id(), edge.id}).has_value();
+//       });
+// }
+
+// bool Scene::lengthsSatisfied(const Polygon &polygon) const {
+//   constexpr double tolerance = 1e-2;
+//   for (const Edge &edge : polygon.edges()) {
+//     const std::optional<double> length =
+//         lengthConstraint({polygon.id(), edge.id});
+//     if (!length)
+//       continue;
+//     const QPointF a = polygon.findVertex(edge.start)->position;
+//     const QPointF b = polygon.findVertex(edge.end)->position;
+//     if (std::abs(distance(a, b) - *length) > tolerance)
+//       return false;
+//   }
+//   return true;
+// }
 
 void Scene::removeConstraintsOf(EdgeRef edge) {
-  constraints_.erase(std::remove_if(constraints_.begin(), constraints_.end(),
-                                    [&](const Constraint &c) {
-                                      return c.first == edge ||
-                                             (c.second && *c.second == edge);
-                                    }),
-                     constraints_.end());
+  constraints_.erase(
+      std::remove_if(constraints_.begin(), constraints_.end(),
+                     [&](const Constraint &c) { return c.involves(edge); }),
+      constraints_.end());
 }
 
 bool Scene::insertVertexAtMidpoint(PolygonId polygonId, EdgeId edgeId) {
@@ -256,20 +267,177 @@ void Scene::propagate(Polygon &polygon, const std::vector<Vertex> &before,
       if (fixed[neighbour])
         continue;
       const EdgeRef edge{polygon.id(), polygon.edges()[edgeIndex].id};
+      const bool orthogonal = hasOrthogonalConstraint(edge);
       const std::optional<double> length = lengthConstraint(edge);
-      if (!length)
+      if (!orthogonal && !length)
         continue;
       const QPointF a = polygon.vertices()[current].position;
       const QPointF b = polygon.vertices()[neighbour].position;
-      if (std::abs(distance(a, b) - *length) < lengthEpsilon)
-        continue;
 
-      polygon.moveVertex(polygon.vertices()[neighbour].id,
-                         pointAtDistance(a, b, *length));
+      QPointF target;
+      if (orthogonal) {
+        const QPointF delta = a - before[current].position;
+        if (std::hypot(delta.x(), delta.y()) < lengthEpsilon)
+          continue;
+        target = b + delta;
+      } else {
+        if (std::abs(distance(a, b) - *length) < lengthEpsilon)
+          continue;
+        target = pointAtDistance(a, b, *length);
+      }
+
+      polygon.moveVertex(polygon.vertices()[neighbour].id, target);
       fixed[neighbour] = true;
       queue.push_back(neighbour);
     }
   }
-  (void)before;
 }
+
+bool Scene::hasOrthogonalConstraint(EdgeRef edge) const {
+  return std::any_of(
+      constraints_.begin(), constraints_.end(), [&](const Constraint &c) {
+        return c.type == ConstraintType::Orthogonal && c.involves(edge);
+      });
+}
+
+ConstraintId Scene::setOrthogonalConstraint(EdgeRef first, EdgeRef second) {
+  const std::optional<QPointF> u = edgeVector(first);
+  const std::optional<QPointF> v = edgeVector(second);
+  if (!u || !v || first == second)
+    return 0;
+  if (std::hypot(u->x(), u->y()) < lengthEpsilon ||
+      std::hypot(v->x(), v->y()) < lengthEpsilon)
+    return 0;
+
+  const bool exists = std::any_of(
+      constraints_.begin(), constraints_.end(), [&](const Constraint &c) {
+        return c.type == ConstraintType::Orthogonal && c.second &&
+               ((c.first == first && *c.second == second) ||
+                (c.first == second && *c.second == first));
+      });
+  if (exists)
+    return 0;
+
+  const Scene backup = *this;
+  const ConstraintId id = nextConstraintId_++;
+  constraints_.push_back({id, ConstraintType::Orthogonal, first, second});
+  if (constraintsSatisfied())
+    return id;
+
+  struct Attempt {
+    EdgeRef rotated;
+    EdgeRef reference;
+    bool pivotAtStart;
+  };
+
+  const Attempt attempts[] = {
+      {second, first, true},
+      {second, first, false},
+      {first, second, true},
+      {first, second, false},
+  };
+
+  const Scene withConstraint = *this;
+  for (const Attempt &attempt : attempts) {
+    *this = withConstraint;
+    rotatePerpendicular(attempt.rotated, *edgeVector(attempt.reference),
+                        attempt.pivotAtStart);
+    if (constraintsSatisfied())
+      return id;
+  }
+
+  *this = backup;
+  return 0;
+}
+
+std::optional<QPointF> Scene::edgeVector(EdgeRef ref) const {
+  const Polygon *polygon = findPolygon(ref.polygon);
+  const Edge *edge = polygon ? polygon->findEdge(ref.edge) : nullptr;
+  if (!edge)
+    return std::nullopt;
+  return polygon->findVertex(edge->end)->position -
+         polygon->findVertex(edge->start)->position;
+}
+
+bool Scene::constraintsSatisfied() const {
+  constexpr double lengthTolerance = 1e-2;
+  constexpr double cosTolerance = 1e-3;
+  for (const Constraint &c : constraints_) {
+    const std::optional<QPointF> u = edgeVector(c.first);
+    if (!u)
+      return false;
+    const double lu = std::hypot(u->x(), u->y());
+
+    switch (c.type) {
+    case ConstraintType::Length: {
+      if (std::abs(lu - c.length) > lengthTolerance)
+        return false;
+      break;
+    }
+    case ConstraintType::Orthogonal: {
+      const std::optional<QPointF> v =
+          c.second ? edgeVector(*c.second) : std::nullopt;
+      if (!v)
+        continue;
+      const double lv = std::hypot(v->x(), v->y());
+      if (lu < lengthEpsilon || lv < lengthEpsilon)
+        continue;
+
+      if (std::abs(QPointF::dotProduct(*u, *v)) / (lu * lv) > cosTolerance)
+        return false;
+      break;
+    }
+    }
+  }
+  return true;
+}
+
+void Scene::rotatePerpendicular(EdgeRef ref, QPointF reference,
+                                bool pivotAtStart) {
+  Polygon *polygon = findPolygon(ref.polygon);
+  const Edge *edge = polygon ? polygon->findEdge(ref.edge) : nullptr;
+  if (!polygon || !edge)
+    return;
+
+  const std::size_t n = polygon->vertices().size();
+  const std::size_t start =
+      static_cast<std::size_t>(edge - polygon->edges().data());
+  const std::size_t end = (start + 1) % n;
+
+  const QPointF a = polygon->vertices()[start].position;
+  const QPointF b = polygon->vertices()[end].position;
+  const QPointF d = b - a;
+
+  const double referenceLength = std::hypot(reference.x(), reference.y());
+  QPointF normal(-reference.y() / referenceLength,
+                 reference.x() / referenceLength);
+  if (QPointF::dotProduct(normal, d) < 0)
+    normal = -normal;
+
+  const QPointF rotated = normal * std::hypot(d.x(), d.y());
+
+  const std::vector<Vertex> before = polygon->vertices();
+  std::vector<bool> fixed(n, false);
+  std::size_t moved;
+
+  if (pivotAtStart) {
+    polygon->moveVertex(polygon->vertices()[end].id, a + rotated);
+    fixed[start] = true;
+    moved = end;
+  } else {
+    polygon->moveVertex(polygon->vertices()[start].id, b - rotated);
+    fixed[end] = true;
+    moved = start;
+  }
+
+  propagate(*polygon, before, {moved}, fixed);
+}
+
+void Scene::removeConstraint(ConstraintId id) {
+  constraints_.erase(
+      std::remove_if(constraints_.begin(), constraints_.end(),
+                     [&](const Constraint &c) { return c.id == id; }),
+      constraints_.end());
+}
+
 } // namespace model

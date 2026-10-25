@@ -1,19 +1,34 @@
 #include "CanvasWidget.h"
 #include "model/Constraint.h"
 #include "model/Edge.h"
+#include "model/Polygon.h"
+#include "render/LineDrawing.h"
 #include <QContextMenuEvent>
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <QMenu>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
 #include <algorithm>
 #include <cmath>
+namespace {
+void drawEdgeLabel(QPainter &painter, QPointF a, QPointF b, const QString &text,
+                   double offset) {
+  const QPointF ab = b - a;
+  const double length = std::hypot(ab.x(), ab.y());
+  if (length == 0)
+    return;
+  const QPointF normal(-ab.y() / length, ab.x() / length);
+  const QPointF center = (a + b) / 2 + offset * normal;
+  painter.drawText(QRectF(center - QPointF(60, 9), QSizeF(120, 18)),
+                   Qt::AlignCenter, text);
+}
+} // namespace
 
 CanvasWidget::CanvasWidget(model::Scene &scene, QWidget *parent)
     : QWidget(parent), scene_(scene) {
-  setWindowTitle("Edytor wielokatow");
-  resize(1200, 900);
+  setFocusPolicy(Qt::StrongFocus);
 }
 
 void CanvasWidget::paintEvent(QPaintEvent *) {
@@ -25,7 +40,7 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
     for (const model::Edge &edge : polygon.edges()) {
       const QPointF a = polygon.findVertex(edge.start)->position;
       const QPointF b = polygon.findVertex(edge.end)->position;
-      painter.drawLine(a, b);
+      render::drawSegment(painter, a, b, lineAlgorithm_);
     }
 
     painter.setPen(Qt::black);
@@ -34,37 +49,48 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
       painter.drawEllipse(vertex.position, 5, 5);
   }
 
+  if (pendingOrthogonal_) {
+    const model::Polygon *polygon =
+        scene_.findPolygon(pendingOrthogonal_->polygon);
+    const model::Edge *edge =
+        polygon ? polygon->findEdge(pendingOrthogonal_->edge) : nullptr;
+    if (polygon && edge) {
+      painter.setPen(QPen(QColor(255, 140, 0), 4));
+      painter.drawLine(polygon->findVertex(edge->start)->position,
+                       polygon->findVertex(edge->end)->position);
+    }
+    painter.setPen(Qt::black);
+    painter.drawText(QPointF(10, 20),
+                     "Kliknij na druga krawedz (lub Esc aby anulowac)");
+  }
   drawConstraintLabels(painter);
 }
 
 void CanvasWidget::drawConstraintLabels(QPainter &painter) const {
-  painter.setPen(Qt::darkRed);
-  for (const model::Constraint &constraint : scene_.constraints()) {
-    if (constraint.type != model::ConstraintType::Length)
-      continue;
 
-    const model::Polygon *polygon =
-        scene_.findPolygon(constraint.first.polygon);
-    if (!polygon)
-      continue;
-    const model::Edge *edge = polygon->findEdge(constraint.first.edge);
-    if (!edge)
-      continue;
+  constexpr double labelOffset = 14.0;
+  for (const model::Polygon &polygon : scene_.polygons()) {
+    for (const model::Edge &edge : polygon.edges()) {
+      const model::EdgeRef ref{polygon.id(), edge.id};
+      const QPointF a = polygon.findVertex(edge.start)->position;
+      const QPointF b = polygon.findVertex(edge.end)->position;
 
-    const QPointF a = polygon->findVertex(edge->start)->position;
-    const QPointF b = polygon->findVertex(edge->end)->position;
-    const QPointF ab = b - a;
-    const double length = std::hypot(ab.x(), ab.y());
-    if (length == 0)
-      continue;
+      if (const std::optional<double> length = scene_.lengthConstraint(ref)) {
+        painter.setPen(Qt::darkRed);
+        drawEdgeLabel(painter, a, b, QString::number(*length, 'f', 1),
+                      labelOffset);
+      }
 
-    constexpr double labelOffset = 14.0;
-    const QPointF normal(-ab.y() / length, ab.x() / length);
-    const QPointF center = (a + b) / 2 + labelOffset * normal;
-
-    const QRectF box(center - QPointF(30, 9), QSizeF(60, 18));
-    painter.drawText(box, Qt::AlignCenter,
-                     QString::number(constraint.length, 'f', 1));
+      QStringList orthogonal;
+      for (const model::Constraint &c : scene_.constraints()) {
+        if (c.type == model::ConstraintType::Orthogonal && c.involves(ref))
+          orthogonal << QString("⊥%1").arg(c.id);
+      }
+      if (!orthogonal.isEmpty()) {
+        painter.setPen(Qt::darkGreen);
+        drawEdgeLabel(painter, a, b, orthogonal.join(' '), -labelOffset);
+      }
+    }
   }
 }
 
@@ -114,7 +140,18 @@ std::optional<CanvasWidget::Hit> CanvasWidget::hitTest(QPointF position) const {
 void CanvasWidget::mousePressEvent(QMouseEvent *event) {
   if (event->button() != Qt::LeftButton)
     return;
+  if (pendingOrthogonal_) {
+    const std::optional<Hit> hit = hitTest(event->position());
+    const model::EdgeRef first = *pendingOrthogonal_;
+    pendingOrthogonal_.reset();
+    update();
 
+    if (hit && hit->kind == Hit::Kind::Edge &&
+        scene_.setOrthogonalConstraint(first, {hit->polygon, hit->edge}) == 0)
+      QMessageBox::warning(this, "Ograniczenie prostopadlosci",
+                           "Nie da sie spelnic ograniczenia prostopadlosci");
+    return;
+  }
   const QPointF position = event->position();
   if (const std::optional<Hit> hit = hitTest(position))
     dragState_ = DragState{*hit, position};
@@ -152,6 +189,7 @@ void CanvasWidget::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
+  pendingOrthogonal_.reset();
   const std::optional<Hit> hit = hitTest(event->pos());
   if (!hit)
     return;
@@ -166,7 +204,7 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
     removeVertexAction->setEnabled(polygon->vertices().size() > 3);
 
     if (menu.exec(event->globalPos()) == removeVertexAction) {
-      scene_.removeVertex(hit->vertex, hit->polygon);
+      scene_.removeVertex(hit->polygon, hit->vertex);
       dragState_.reset();
       update();
     }
@@ -178,6 +216,16 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
 
     removeLengthAction->setEnabled(
         scene_.lengthConstraint(edgeRef).has_value());
+
+    QAction *orthogonalAction = menu.addAction("Prostopadła do...");
+
+    for (const model::Constraint &c : scene_.constraints()) {
+      if (c.type != model::ConstraintType::Orthogonal || !c.involves(edgeRef))
+        continue;
+      QAction *action =
+          menu.addAction(QString("Usun prostopadlosc ⊥%1").arg(c.id));
+      action->setData(static_cast<qulonglong>(c.id));
+    }
 
     QAction *chosen = menu.exec(event->globalPos());
 
@@ -201,6 +249,12 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
     } else if (chosen == removeLengthAction) {
       scene_.removeLengthConstraint(edgeRef);
       update();
+    } else if (chosen == orthogonalAction) {
+      pendingOrthogonal_ = edgeRef;
+      update();
+    } else if (chosen && chosen->data().isValid()) {
+      scene_.removeConstraint(chosen->data().toULongLong());
+      update();
     }
   }
 }
@@ -217,4 +271,13 @@ void CanvasWidget::mouseDoubleClickEvent(QMouseEvent *event) {
     dragState_.reset();
     update();
   }
+}
+
+void CanvasWidget::keyPressEvent(QKeyEvent *event) {
+  if (event->key() == Qt::Key_Escape && pendingOrthogonal_) {
+    pendingOrthogonal_.reset();
+    update();
+    return;
+  }
+  QWidget::keyPressEvent(event);
 }

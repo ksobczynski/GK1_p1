@@ -3,34 +3,32 @@
 #include "Polygon.h"
 #include <optional>
 
-namespace model
-{
-    using ConstraintId = std::uint64_t;
+namespace model {
+using ConstraintId = std::uint64_t;
 
-    struct EdgeRef
-    {
-        PolygonId polygon;
-        EdgeId edge;
+struct EdgeRef {
+  PolygonId polygon;
+  EdgeId edge;
 
-        bool operator==(const EdgeRef &other) const
-        {
-            return polygon == other.polygon && edge == other.edge;
-        }
-        bool operator!=(const EdgeRef &other) const { return !(*this == other); }
-    };
+  bool operator==(const EdgeRef &other) const {
+    return polygon == other.polygon && edge == other.edge;
+  }
+  bool operator!=(const EdgeRef &other) const { return !(*this == other); }
+};
 
-    enum class ConstraintType
-    {
-        Length,
-        Orthogonal,
-    };
+enum class ConstraintType {
+  Length,
+  Orthogonal,
+};
 
-    struct Constraint
-    {
-        ConstraintId id;
-        ConstraintType type;
-        EdgeRef first;
-        std::optional<EdgeRef> second;
-        double length = 0.0;
-    };
+struct Constraint {
+  ConstraintId id;
+  ConstraintType type;
+  EdgeRef first;
+  std::optional<EdgeRef> second;
+  double length = 0.0;
+  bool involves(EdgeRef edge) const {
+    return first == edge || (second && *second == edge);
+  }
+};
 } // namespace model

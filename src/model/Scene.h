@@ -27,14 +27,24 @@ public:
   bool removeVertex(PolygonId polygon, VertexId vertex);
   void removeLengthConstraint(EdgeRef edge);
 
+  ConstraintId setOrthogonalConstraint(EdgeRef first, EdgeRef second);
+  void removeConstraint(ConstraintId id);
+
 private:
-  void enforceLengths(Polygon &polygon, std::size_t origin,
-                      std::vector<bool> fixed);
+  // void enforceLengths(Polygon &polygon, std::size_t origin,
+  // std::vector<bool> fixed);
   void propagate(Polygon &polygon, const std::vector<Vertex> &before,
                  std::vector<std::size_t> queue, std::vector<bool> fixed);
-  bool allEdgesHaveLength(const Polygon &polygon) const;
-  bool lengthsSatisfied(const Polygon &polygon) const;
+  // bool allEdgesHaveLength(const Polygon &polygon) const;
+  // bool lengthsSatisfied(const Polygon &polygon) const;
   void removeConstraintsOf(EdgeRef edge);
+
+  bool hasOrthogonalConstraint(EdgeRef edge) const;
+
+  std::optional<QPointF> edgeVector(EdgeRef edge) const;
+  bool constraintsSatisfied() const;
+
+  void rotatePerpendicular(EdgeRef ref, QPointF reference, bool pivotAtStart);
   PolygonId nextPolygonId_ = 1;
   std::vector<Polygon> polygons_;
   ConstraintId nextConstraintId_ = 1;
