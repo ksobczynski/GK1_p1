@@ -90,3 +90,21 @@ jobs:
         with:
           name: p1-linux
           path: p1-x86_64.AppImage
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Pack Windows build
+        run: cd p1-windows && zip -r ../p1-windows.zip .
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            p1-windows.zip
+            p1-linux/p1-x86_64.AppImage
