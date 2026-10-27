@@ -3,6 +3,7 @@
 #include "model/Edge.h"
 #include "model/Polygon.h"
 #include "model/Vertex.h"
+#include "render/Arc.h"
 #include "render/Bezier.h"
 #include "render/LineDrawing.h"
 #include <QContextMenuEvent>
@@ -44,8 +45,31 @@ const char *continuityName(model::Continuity continuity) {
 
 bool nearCurve(const model::Polygon &polygon, std::size_t v) {
   const std::size_t n = polygon.vertices().size();
-  return polygon.edges()[v].kind == model::EdgeKind::Bezier ||
-         polygon.edges()[(v + n - 1) % n].kind == model::EdgeKind::Bezier;
+  return polygon.edges()[v].kind != model::EdgeKind::Segment ||
+         polygon.edges()[(v + n - 1) % n].kind != model::EdgeKind::Segment;
+}
+
+bool nextToArc(const model::Polygon &polygon, std::size_t v) {
+  const std::size_t n = polygon.vertices().size();
+  return polygon.edges()[v].kind == model::EdgeKind::Arc ||
+         polygon.edges()[(v + n - 1) % n].kind == model::EdgeKind::Arc;
+}
+
+std::vector<QPointF> edgePoints(const model::Polygon &polygon, std::size_t e) {
+  const model::Edge &edge = polygon.edges()[e];
+  const QPointF a = polygon.findVertex(edge.start)->position;
+  const QPointF b = polygon.findVertex(edge.end)->position;
+  switch (edge.kind) {
+  case model::EdgeKind::Bezier:
+    return render::bezierPoints(a, edge.controls[0], edge.controls[1], b);
+  case model::EdgeKind::Arc: {
+    const model::Polygon::ArcTangents tangents = polygon.arcTangents(e);
+    return render::arcPoints(a, b, tangents.start, tangents.end);
+  }
+  case model::EdgeKind::Segment:
+    break;
+  }
+  return {a, b};
 }
 } // namespace
 
@@ -60,13 +84,23 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
 
   for (const model::Polygon &polygon : scene_.polygons()) {
     painter.setPen(QPen(Qt::darkBlue, 2));
-    for (const model::Edge &edge : polygon.edges()) {
+    for (std::size_t e = 0; e < polygon.edges().size(); ++e) {
+      const model::Edge &edge = polygon.edges()[e];
       const QPointF a = polygon.findVertex(edge.start)->position;
       const QPointF b = polygon.findVertex(edge.end)->position;
-      if (edge.kind == model::EdgeKind::Bezier)
-        render::drawBezier(painter, a, edge.controls[0], edge.controls[1], b);
-      else
+      switch (edge.kind) {
+      case model::EdgeKind::Segment:
         render::drawSegment(painter, a, b, lineAlgorithm_);
+        break;
+      case model::EdgeKind::Bezier:
+        render::drawBezier(painter, a, edge.controls[0], edge.controls[1], b);
+        break;
+      case model::EdgeKind::Arc: {
+        const model::Polygon::ArcTangents tangents = polygon.arcTangents(e);
+        render::drawArc(painter, a, b, tangents.start, tangents.end);
+        break;
+      }
+      }
     }
     painter.save();
     painter.setPen(QPen(Qt::gray, 1, Qt::DashLine));
@@ -81,8 +115,14 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
       painter.drawLine(a, c0);
       painter.drawLine(c0, c1);
       painter.drawLine(c1, b);
+    }
+    painter.setPen(QPen(Qt::black, 1));
+    painter.setBrush(QColor(255, 140, 0));
+    for (const model::Edge &edge : polygon.edges()) {
+      if (edge.kind != model::EdgeKind::Bezier)
+        continue;
       for (const QPointF &control : edge.controls)
-        painter.drawEllipse(control, 4, 4);
+        painter.drawEllipse(control, 6, 6);
     }
     painter.restore();
 
@@ -168,6 +208,7 @@ std::optional<CanvasWidget::Hit> CanvasWidget::hitTest(QPointF position) const {
         return Hit{Hit::Kind::Vertex, polygon.id(), vertex.id, 0};
     }
   }
+
   for (const model::Polygon &polygon : polygons) {
     for (const model::Edge &edge : polygon.edges()) {
       if (edge.kind != model::EdgeKind::Bezier)
@@ -181,24 +222,15 @@ std::optional<CanvasWidget::Hit> CanvasWidget::hitTest(QPointF position) const {
   }
 
   for (const model::Polygon &polygon : polygons) {
-    for (const model::Edge &edge : polygon.edges()) {
-      const QPointF a = polygon.findVertex(edge.start)->position;
-      const QPointF b = polygon.findVertex(edge.end)->position;
-      double distanceSquared;
-      if (edge.kind == model::EdgeKind::Bezier) {
-        const std::vector<QPointF> points =
-            render::bezierPoints(a, edge.controls[0], edge.controls[1], b);
-        distanceSquared = std::numeric_limits<double>::max();
-        for (std::size_t i = 1; i < points.size(); i++) {
-          distanceSquared = std::min(
-              distanceSquared,
-              squaredDistanceToSegment(position, points[i - 1], points[i]));
-        }
-      } else {
-        distanceSquared = squaredDistanceToSegment(position, a, b);
-      }
+    for (std::size_t e = 0; e < polygon.edges().size(); ++e) {
+      const std::vector<QPointF> points = edgePoints(polygon, e);
+      double distanceSquared = std::numeric_limits<double>::max();
+      for (std::size_t i = 1; i < points.size(); i++)
+        distanceSquared = std::min(
+            distanceSquared,
+            squaredDistanceToSegment(position, points[i - 1], points[i]));
       if (distanceSquared <= edgeDistance * edgeDistance)
-        return Hit{Hit::Kind::Edge, polygon.id(), 0, edge.id};
+        return Hit{Hit::Kind::Edge, polygon.id(), 0, polygon.edges()[e].id};
     }
   }
 
@@ -292,6 +324,9 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
       action->setCheckable(true);
       action->setChecked(vertex->continuity == value);
       action->setData(static_cast<int>(value));
+
+      if (value == model::Continuity::C1 && nextToArc(*polygon, index))
+        action->setEnabled(false);
     }
 
     QAction *chosen = menu.exec(event->globalPos());
@@ -300,18 +335,30 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
       dragState_.reset();
       update();
     } else if (chosen && chosen->data().isValid()) {
-      scene_.setContinuity(
-          hit->polygon, hit->vertex,
-          static_cast<model::Continuity>(chosen->data().toInt()));
+      if (!scene_.setContinuity(
+              hit->polygon, hit->vertex,
+              static_cast<model::Continuity>(chosen->data().toInt())))
+        QMessageBox::warning(this, "Ciaglosc",
+                             "Luk moze miec G1 tylko na jednym koncu.");
       update();
     }
   } else if (hit->kind == Hit::Kind::Edge) {
     const model::EdgeRef edgeRef{hit->polygon, hit->edge};
 
     const model::Edge *edge = polygon->findEdge(hit->edge);
-    const bool bezier = edge->kind == model::EdgeKind::Bezier;
-    QAction *kindAction = menu.addAction(bezier ? "zamień na odcinek"
-                                                : "zamień na krzywą beziera");
+    const bool segment = edge->kind == model::EdgeKind::Segment;
+
+    QMenu *kindMenu = menu.addMenu("Typ krawedzi");
+    const std::pair<const char *, model::EdgeKind> kinds[] = {
+        {"Odcinek", model::EdgeKind::Segment},
+        {"Krzywa Beziera", model::EdgeKind::Bezier},
+        {"Luk okregu", model::EdgeKind::Arc}};
+    QAction *kindActions[3];
+    for (int i = 0; i < 3; ++i) {
+      kindActions[i] = kindMenu->addAction(kinds[i].first);
+      kindActions[i]->setCheckable(true);
+      kindActions[i]->setChecked(edge->kind == kinds[i].second);
+    }
 
     QAction *lengthAction = menu.addAction("Ustaw dlugosc...");
     QAction *removeLengthAction = menu.addAction("Usun ograniczenie długości");
@@ -321,8 +368,8 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
 
     QAction *orthogonalAction = menu.addAction("Prostopadła do...");
 
-    lengthAction->setEnabled(!bezier);
-    orthogonalAction->setEnabled(!bezier);
+    lengthAction->setEnabled(segment);
+    orthogonalAction->setEnabled(segment);
 
     for (const model::Constraint &c : scene_.constraints()) {
       if (c.type != model::ConstraintType::Orthogonal || !c.involves(edgeRef))
@@ -356,9 +403,10 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
     } else if (chosen == orthogonalAction) {
       pendingOrthogonal_ = edgeRef;
       update();
-    } else if (chosen == kindAction) {
-      scene_.setEdgeKind(edgeRef, bezier ? model::EdgeKind::Segment
-                                         : model::EdgeKind::Bezier);
+    } else if (const auto it = std::find(std::begin(kindActions),
+                                         std::end(kindActions), chosen);
+               chosen && it != std::end(kindActions)) {
+      scene_.setEdgeKind(edgeRef, kinds[it - std::begin(kindActions)].second);
       update();
     } else if (chosen && chosen->data().isValid()) {
       scene_.removeConstraint(chosen->data().toULongLong());

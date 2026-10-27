@@ -28,6 +28,8 @@ add_executable(p1
     src/ui/MainWindow.cpp
     src/render/Bezier.h
     src/render/Bezier.cpp
+    src/render/Arc.h
+    src/render/Arc.cpp
 )
 
 target_link_libraries(p1 PRIVATE Qt6::Widgets)

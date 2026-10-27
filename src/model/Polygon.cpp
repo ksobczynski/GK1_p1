@@ -145,6 +145,7 @@ Edge *Polygon::findEdgeMutable(EdgeId id) {
 }
 
 bool Polygon::setEdgeKind(EdgeId id, EdgeKind kind) {
+
   Edge *edge = findEdgeMutable(id);
   if (!edge)
     return false;
@@ -152,10 +153,26 @@ bool Polygon::setEdgeKind(EdgeId id, EdgeKind kind) {
     return true;
 
   edge->kind = kind;
+  const std::size_t n = vertices_.size();
+  const std::size_t e = static_cast<std::size_t>(edge - edges_.data());
+  if (kind == EdgeKind::Arc) {
+    Vertex &a = vertices_[e];
+    Vertex &b = vertices_[(e + 1) % n];
+    for (Vertex *v : {&a, &b})
+      if (v->continuity == Continuity::C1)
+        v->continuity = Continuity::G1;
+    if (edges_[(e + n - 1) % n].kind == EdgeKind::Arc)
+      a.continuity = Continuity::G0;
+    if (edges_[(e + 1) % n].kind == EdgeKind::Arc)
+      b.continuity = Continuity::G0;
+    if (a.continuity != Continuity::G0 && b.continuity != Continuity::G0)
+      b.continuity = Continuity::G0;
+  }
   if (kind == EdgeKind::Bezier) {
 
     for (Vertex &v : vertices_) {
-      if ((v.id == edge->start || v.id == edge->end) && !v.continuityExplicit) {
+      if ((v.id == edge->start || v.id == edge->end) && !v.continuityExplicit &&
+          !nextToArc(v.id)) {
         v.continuity = Continuity::C1;
       }
     }
@@ -183,5 +200,46 @@ bool Polygon::setContinuity(VertexId id, Continuity continuity) {
     }
   }
   return false;
+}
+
+bool Polygon::nextToArc(VertexId id) const {
+  const std::size_t n = vertices_.size();
+  for (std::size_t v = 0; v < n; ++v) {
+    if (vertices_[v].id == id)
+      return edges_[v].kind == EdgeKind::Arc ||
+             edges_[(v + n - 1) % n].kind == EdgeKind::Arc;
+  }
+  return false;
+}
+
+QPointF Polygon::incomingTangent(std::size_t v) const {
+  const std::size_t n = vertices_.size();
+  const Edge &edge = edges_[(v + n - 1) % n];
+  const QPointF V = vertices_[v].position;
+  if (edge.kind == EdgeKind::Bezier)
+    return 3 * (V - edge.controls[1]);
+  return V - vertices_[(v + n - 1) % n].position;
+}
+
+QPointF Polygon::outgoingTangent(std::size_t v) const {
+  const std::size_t n = vertices_.size();
+  const Edge &edge = edges_[v];
+  const QPointF V = vertices_[v].position;
+  if (edge.kind == EdgeKind::Bezier)
+    return 3 * (edge.controls[0] - V);
+  return vertices_[(v + 1) % n].position - V;
+}
+Polygon::ArcTangents Polygon::arcTangents(std::size_t e) const {
+  const std::size_t n = vertices_.size();
+  const std::size_t start = e;
+  const std::size_t end = (e + 1) % n;
+  ArcTangents result;
+  if (vertices_[start].continuity != Continuity::G0 &&
+      edges_[(start + n - 1) % n].kind != EdgeKind::Arc)
+    result.start = incomingTangent(start);
+  else if (vertices_[end].continuity != Continuity::G0 &&
+           edges_[end].kind != EdgeKind::Arc)
+    result.end = outgoingTangent(end);
+  return result;
 }
 } // namespace model

@@ -6,7 +6,7 @@
 namespace model {
 using EdgeId = std::uint64_t;
 
-enum class EdgeKind { Segment, Bezier };
+enum class EdgeKind { Segment, Bezier, Arc };
 
 struct Edge {
   EdgeId id;

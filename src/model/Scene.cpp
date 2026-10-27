@@ -30,23 +30,23 @@ QPointF pointAtDistance(QPointF a, QPointF b, double length) {
 
 double norm(QPointF v) { return std::hypot(v.x(), v.y()); }
 
-QPointF incomingTangent(const Polygon &polygon, std::size_t v) {
-  const std::size_t n = polygon.vertices().size();
-  const Edge &edge = polygon.edges()[(v + n - 1) % n];
-  const QPointF V = polygon.vertices()[v].position;
-  if (edge.kind == EdgeKind::Bezier)
-    return 3 * (V - edge.controls[1]);
-  return V - polygon.vertices()[(v + n - 1) % n].position;
-}
+// QPointF incomingTangent(const Polygon &polygon, std::size_t v) {
+//   const std::size_t n = polygon.vertices().size();
+//   const Edge &edge = polygon.edges()[(v + n - 1) % n];
+//   const QPointF V = polygon.vertices()[v].position;
+//   if (edge.kind == EdgeKind::Bezier)
+//     return 3 * (V - edge.controls[1]);
+//   return V - polygon.vertices()[(v + n - 1) % n].position;
+// }
 
-QPointF outgoingTangent(const Polygon &polygon, std::size_t v) {
-  const std::size_t n = polygon.vertices().size();
-  const Edge &edge = polygon.edges()[v];
-  const QPointF V = polygon.vertices()[v].position;
-  if (edge.kind == EdgeKind::Bezier)
-    return 3 * (edge.controls[0] - V);
-  return polygon.vertices()[(v + 1) % n].position - V;
-}
+// QPointF outgoingTangent(const Polygon &polygon, std::size_t v) {
+//   const std::size_t n = polygon.vertices().size();
+//   const Edge &edge = polygon.edges()[v];
+//   const QPointF V = polygon.vertices()[v].position;
+//   if (edge.kind == EdgeKind::Bezier)
+//     return 3 * (edge.controls[0] - V);
+//   return polygon.vertices()[(v + 1) % n].position - V;
+// }
 } // namespace
 
 PolygonId Scene::addPolygon(const std::vector<QPointF> &points) {
@@ -143,6 +143,13 @@ Scene Scene::createDemo() {
   // pionowa krawedz czworokata _|_ pozioma krawedz muszki
   scene.setOrthogonalConstraint({quad, edges[3].id},
                                 {bowtie, bowtieEdges[1].id});
+  scene.setEdgeKind({bowtie, bowtieEdges[3].id}, EdgeKind::Arc);
+
+  const PolygonId arch =
+      scene.addPolygon({{880, 330}, {850, 180}, {1050, 180}, {1050, 330}});
+  const Polygon &archPolygon = *scene.findPolygon(arch);
+  scene.setEdgeKind({arch, archPolygon.edges()[1].id}, EdgeKind::Arc);
+  scene.setContinuity(arch, archPolygon.vertices()[1].id, Continuity::G1);
   return scene;
 }
 
@@ -520,12 +527,31 @@ void Scene::moveControlPoint(EdgeRef ref, std::size_t index, QPointF position) {
   }
 }
 
-void Scene::setContinuity(PolygonId polygonId, VertexId vertexId,
+bool Scene::setContinuity(PolygonId polygonId, VertexId vertexId,
                           Continuity continuity) {
   Polygon *polygon = findPolygon(polygonId);
-  if (!polygon || !polygon->setContinuity(vertexId, continuity))
-    return;
+  const Vertex *vertex = polygon ? polygon->findVertex(vertexId) : nullptr;
+  if (!vertex)
+    return false;
+
+  const std::size_t n = polygon->vertices().size();
+  const std::size_t v =
+      static_cast<std::size_t>(vertex - polygon->vertices().data());
+  const bool arcIn = polygon->edges()[(v + n - 1) % n].kind == EdgeKind::Arc;
+  const bool arcOut = polygon->edges()[v].kind == EdgeKind::Arc;
+  if (continuity != Continuity::G0 && (arcIn || arcOut)) {
+    if (continuity == Continuity::C1 || (arcIn && arcOut))
+      return false;
+    if (arcIn &&
+        polygon->vertices()[(v + n - 1) % n].continuity != Continuity::G0)
+      return false;
+    if (arcOut && polygon->vertices()[(v + 1) % n].continuity != Continuity::G0)
+      return false;
+  }
+
+  polygon->setContinuity(vertexId, continuity);
   enforceContinuityEverywhere(*polygon);
+  return true;
 }
 
 void Scene::followControlPoints(Polygon &polygon,
@@ -566,9 +592,10 @@ void Scene::enforceContinuity(Polygon &polygon, std::size_t v, Side master) {
   if (vertex.continuity == Continuity::G0 ||
       (incoming.kind != EdgeKind::Bezier && outgoing.kind != EdgeKind::Bezier))
     return;
-  const QPointF tangent = master == Side::Incoming
-                              ? incomingTangent(polygon, v)
-                              : outgoingTangent(polygon, v);
+  if (incoming.kind == EdgeKind::Arc || outgoing.kind == EdgeKind::Arc)
+    return;
+  const QPointF tangent = master == Side::Incoming ? polygon.incomingTangent(v)
+                                                   : polygon.outgoingTangent(v);
   const double tangentLength = norm(tangent);
   if (tangentLength < lengthEpsilon)
     return;

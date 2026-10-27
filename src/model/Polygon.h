@@ -2,6 +2,7 @@
 
 #include "Edge.h"
 #include "model/Vertex.h"
+#include <optional>
 #include <vector>
 
 namespace model {
@@ -28,7 +29,18 @@ public:
 
   bool setContinuity(VertexId id, Continuity continuity);
 
+  QPointF incomingTangent(std::size_t v) const;
+  QPointF outgoingTangent(std::size_t v) const;
+
+  struct ArcTangents {
+    std::optional<QPointF> start;
+    std::optional<QPointF> end;
+  };
+
+  ArcTangents arcTangents(std::size_t e) const;
+
 private:
+  bool nextToArc(VertexId id) const;
   PolygonId id_;
   VertexId nextVertexId_ = 1;
   EdgeId nextEdgeId_ = 1;

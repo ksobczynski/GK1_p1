@@ -33,7 +33,7 @@ public:
   bool setEdgeKind(EdgeRef edge, EdgeKind kind);
   void moveControlPoint(EdgeRef edge, std::size_t index, QPointF position);
 
-  void setContinuity(PolygonId polygon, VertexId vertex, Continuity continuity);
+  bool setContinuity(PolygonId polygon, VertexId vertex, Continuity continuity);
 
 private:
   // void enforceLengths(Polygon &polygon, std::size_t origin,
