@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "CanvasWidget.h"
+#include "HelpDialog.h"
 #include "model/Scene.h"
 #include "render/LineDrawing.h"
 
@@ -31,4 +32,17 @@ MainWindow::MainWindow(model::Scene &scene, QWidget *parent)
     canvas_->setLineAlgorithm(checked ? render::LineAlgorithm::Bresenham
                                       : render::LineAlgorithm::Library);
   });
+
+  toolbar->addSeparator();
+  QAction *helpAction = toolbar->addAction("Pomoc (F1)");
+  helpAction->setShortcut(Qt::Key_F1);
+  connect(helpAction, &QAction::triggered, this, &MainWindow::showHelp);
+}
+
+void MainWindow::showHelp() {
+  if (!help_)
+    help_ = new HelpDialog(this);
+  help_->show();
+  help_->raise();
+  help_->activateWindow();
 }

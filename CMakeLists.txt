@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
@@ -30,6 +31,9 @@ add_executable(p1
     src/render/Bezier.cpp
     src/render/Arc.h
     src/render/Arc.cpp
+    src/ui/HelpDialog.h
+    src/ui/HelpDialog.cpp
+    resources.qrc
 )
 
 target_link_libraries(p1 PRIVATE Qt6::Widgets)

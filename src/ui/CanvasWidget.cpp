@@ -116,8 +116,8 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
       painter.drawLine(c0, c1);
       painter.drawLine(c1, b);
     }
-    painter.setPen(QPen(Qt::black, 1));
-    painter.setBrush(QColor(255, 140, 0));
+    painter.setPen(QPen(QColor(60, 60, 60), 1));
+    painter.setBrush(QColor(150, 155, 165));
     for (const model::Edge &edge : polygon.edges()) {
       if (edge.kind != model::EdgeKind::Bezier)
         continue;

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="pl">
+
+<head>
+    <meta charset="utf-8">
+    <title>Edytor wielokątów – dokumentacja</title>
+    <style>
+        body {
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        h1 {
+            font-size: 20px;
+        }
+
+        h2 {
+            font-size: 16px;
+            margin-top: 22px;
+        }
+
+        a {
+            text-decoration: none;
+        }
+
+        h3 {
+            font-size: 14px;
+            margin-top: 14px;
+        }
+
+        table {
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            border: 1px solid #999;
+            padding: 3px 6px;
+            vertical-align: top;
+        }
+
+        th {
+            background-color: #e4e4e4;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Edytor wielokątów i wielokątów krzywoliniowych</h1>
+
+    <p><b>Spis treści</b></p>
+    <ol>
+        <li><a href="#obsluga">Obsługa programu</a></li>
+        <li><a href="#zalozenia">Przyjęte założenia</a></li>
+        <li><a href="#model">Model danych i architektura</a></li>
+        <li><a href="#ograniczenia">Algorytm obsługi ograniczeń</a></li>
+        <li><a href="#ciaglosc">Ciągłość w wierzchołkach</a></li>
+        <li><a href="#rysowanie">Algorytmy rysowania</a></li>
+        <li><a href="#demo">Scena demonstracyjna</a></li>
+    </ol>
+
+    <h2><a name="obsluga"></a>1. Obsługa programu</h2>
+
+    <h3>Mysz i klawiatura</h3>
+    <table>
+        <tr>
+            <th>Akcja</th>
+            <th>Efekt</th>
+        </tr>
+        <tr>
+            <td>LPM + przeciąganie wierzchołka</td>
+            <td>Przesuwa wierzchołek; pozostałe wierzchołki i punkty kontrolne
+                dostosowują się do ograniczeń i ciągłości.</td>
+        </tr>
+        <tr>
+            <td>LPM + przeciąganie punktu kontrolnego (szara kropka)</td>
+            <td>Zmienia kształt krzywej Béziera; przy ciągłości G1/C1 dostosowuje
+                się druga strona wierzchołka.</td>
+        </tr>
+        <tr>
+            <td>LPM + przeciąganie krawędzi lub wnętrza</td>
+            <td>Przesuwa cały wielokąt.</td>
+        </tr>
+        <tr>
+            <td>Dwuklik na krawędzi</td>
+            <td>Dodaje wierzchołek w środku krawędzi.</td>
+        </tr>
+        <tr>
+            <td>PPM na wierzchołku</td>
+            <td>Menu: <i>Usuń wierzchołek</i> (gdy wielokąt ma więcej niż 3
+                wierzchołki), <i>Ciągłość</i> → G0 / G1 / C1 (gdy wierzchołek
+                sąsiaduje z krzywą lub łukiem).</td>
+        </tr>
+        <tr>
+            <td>PPM na krawędzi</td>
+            <td>Menu: <i>Typ krawędzi</i> → odcinek / krzywa Béziera / łuk okręgu,
+                <i>Ustaw długość…</i>, <i>Usuń ograniczenie długości</i>,
+                <i>Prostopadła do…</i>, <i>Usuń prostopadłość ⊥n</i>.
+                Ograniczenia są dostępne tylko dla odcinków.
+            </td>
+        </tr>
+        <tr>
+            <td><i>Prostopadła do…</i>, potem LPM na drugiej krawędzi</td>
+            <td>Dodaje ograniczenie prostopadłości (krawędzie mogą należeć do
+                różnych wielokątów). Wybrana krawędź świeci na pomarańczowo.</td>
+        </tr>
+        <tr>
+            <td>Esc, kliknięcie obok krawędzi lub PPM</td>
+            <td>Anuluje wybór drugiej krawędzi.</td>
+        </tr>
+        <tr>
+            <td>F1 / przycisk <i>Pomoc</i></td>
+            <td>Otwiera tę dokumentację.</td>
+        </tr>
+        <tr>
+            <td>Przyciski <i>Biblioteczny / Bresenham</i></td>
+            <td>Wybór algorytmu rysowania odcinków.</td>
+        </tr>
+    </table>
+
+    <h3>Oznaczenia na scenie</h3>
+    <ul>
+        <li><b>Czerwona liczba</b> przy krawędzi – zadana długość.</li>
+        <li><b>Zielone ⊥n</b> – ograniczenie prostopadłości o numerze <i>n</i>;
+            obie krawędzie pary mają ten sam numer.</li>
+        <li><b>G0 / G1 / C1</b> przy wierzchołku – klasa ciągłości (tylko obok krzywej
+            lub łuku).</li>
+        <li><b>Szara linia przerywana</b> – wielobok Béziera,
+            <b>szare kropki</b> – punkty kontrolne.
+        </li>
+    </ul>
+
+    <h2><a name="zalozenia"></a>2. Przyjęte założenia</h2>
+    <h3>Ograniczenia</h3>
+    <ul>
+        <li>Ograniczenia (długość, prostopadłość) dotyczą tylko odcinków. Zamiana
+            krawędzi na krzywą lub łuk usuwa jej ograniczenia.</li>
+        <li>Krawędź ma najwyżej jedno ograniczenie długości (nowe nadpisuje stare)
+            i dowolnie wiele prostopadłości.</li>
+        <li>Dodanie wierzchołka na krawędzi lub usunięcie wierzchołka usuwa
+            ograniczenia zmienionych krawędzi (również po stronie partnera
+            prostopadłości).</li>
+        <li>Przy przesuwaniu krawędź z prostopadłością przesuwa się równolegle (oba
+            końce dostają ten sam wektor przesunięcia) – zachowuje kierunek, więc
+            prostopadłość do nieruchomego partnera zostaje.</li>
+        <li>Gdy ruchu wierzchołka nie da się rozłożyć na sąsiednie krawędzie z
+            zachowaniem ograniczeń, przesuwany jest cały wielokąt. Przesuwany
+            wierzchołek zawsze podąża za kursorem.</li>
+        <li>Ograniczenie, którego nie da się spełnić razem z pozostałymi, jest
+            odrzucane (komunikat), a scena pozostaje bez zmian.</li>
+    </ul>
+    <h3>Krzywe i łuki</h3>
+    <ul>
+        <li>Domyślna ciągłość po zamianie krawędzi na krzywą Béziera to <b>C1</b>,
+            chyba że użytkownik wcześniej ustawił ciągłość w tym wierzchołku sam.</li>
+        <li>Nowa krzywa ma punkty kontrolne na 1/3 i 2/3 cięciwy (a przy G1/C1
+            od razu dopasowane do sąsiadów).</li>
+        <li>Dodanie wierzchołka na krzywej lub łuku dzieli krawędź na dwa
+            odcinki.</li>
+        <li>Łuk zna tylko G0 i G1; G1 może mieć najwyżej jeden koniec łuku, a
+            wierzchołek między dwoma łukami nie może mieć G1.</li>
+        <li>Łuk G0–G0 to półokrąg rysowany zawsze po tej samej stronie cięciwy.</li>
+        <li>Algorytm Bresenhama dotyczy tylko odcinków; krzywe, łuki i wielobok
+            Béziera są rysowane biblioteką.</li>
+    </ul>
+
+    <h2><a name="model"></a>3. Model danych i architektura</h2>
+    <p>Program jest podzielony na trzy warstwy:</p>
+    <ul>
+        <li><code>model</code> – dane i logika ograniczeń, bez zależności od
+            interfejsu,</li>
+        <li><code>render</code> – algorytmy rysowania (Bresenham, Bézier, łuk),</li>
+        <li><code>ui</code> – okno, obsługa myszy, menu, dokumentacja.</li>
+    </ul>
+
+    <table>
+        <tr>
+            <th>Klasa</th>
+            <th>Zawartość</th>
+        </tr>
+        <tr>
+            <td><code>Scene</code></td>
+            <td>Lista wielokątów i lista ograniczeń. Wszystkie operacje zmieniające
+                geometrię przechodzą przez scenę, żeby ograniczenia pozostały
+                spójne.</td>
+        </tr>
+        <tr>
+            <td><code>Polygon</code></td>
+            <td>Identyfikator, wektor wierzchołków i wektor krawędzi. Krawędź
+                <i>i</i> łączy wierzchołki <i>i</i> oraz <i>i+1</i> (modulo
+                liczba wierzchołków).
+            </td>
+        </tr>
+        <tr>
+            <td><code>Vertex</code></td>
+            <td>Identyfikator, pozycja, klasa ciągłości (G0/G1/C1) i flaga, czy
+                ciągłość ustawił użytkownik.</td>
+        </tr>
+        <tr>
+            <td><code>Edge</code></td>
+            <td>Identyfikator, identyfikatory końców, typ (odcinek / Bézier / łuk)
+                i dwa punkty kontrolne (używane tylko przez krzywą Béziera).</td>
+        </tr>
+        <tr>
+            <td><code>Constraint</code></td>
+            <td>Identyfikator, typ (długość / prostopadłość), pierwsza krawędź,
+                opcjonalna druga krawędź i długość.</td>
+        </tr>
+        <tr>
+            <td><code>EdgeRef</code></td>
+            <td>Para (id wielokąta, id krawędzi) – odwołanie do krawędzi, także
+                w innym wielokącie.</td>
+        </tr>
+    </table>
+
+    <p>Relacje między obiektami są zapisane przez <b>identyfikatory, a nie
+            wskaźniki</b>. Dzięki temu scenę można bezpiecznie skopiować i przywrócić
+        (tak działa cofanie nieudanych operacji), a ograniczenia nie przestają być
+        ważne, gdy wektor wierzchołków lub krawędzi zostanie przealokowany.</p>
+
+    <p>Kształt łuku nie jest przechowywany – wynika z końców krawędzi i ciągłości,
+        więc jest liczony przy rysowaniu i trafianiu myszą.</p>
+
+    <h2><a name="ograniczenia"></a>4. Algorytm obsługi ograniczeń</h2>
+
+    <h3>Propagacja ruchu (<code>Scene::propagate</code>)</h3>
+    <p>Po przesunięciu wierzchołka (lub kilku) ruch rozchodzi się po wielokącie
+        kolejką (BFS). Dla każdego przesuniętego wierzchołka <i>current</i> sprawdzane
+        są obie sąsiednie krawędzie i wierzchołek <i>neighbour</i> na ich drugim
+        końcu:</p>
+    <ol>
+        <li>Jeśli <i>neighbour</i> jest już ustalony (był przesunięty w tym
+            przebiegu albo nie wolno go ruszać) – pomijamy.</li>
+        <li><b>Krawędź z prostopadłością:</b> <i>neighbour</i> dostaje ten sam
+            wektor przesunięcia co <i>current</i>. Krawędź przesuwa się
+            równolegle, więc zachowuje kierunek i długość. Ta reguła ma
+            pierwszeństwo przed długością, bo przyciąganie końca po prostej
+            obróciłoby krawędź.</li>
+        <li><b>Krawędź z samą długością L:</b> <i>neighbour</i> przesuwa się po
+            prostej <i>current → neighbour</i> na odległość L.</li>
+        <li><b>Krawędź bez ograniczeń</b> albo już spełniona – łańcuch się tu
+            zatrzymuje (krawędź przejmuje ruch).</li>
+        <li>Przesunięty <i>neighbour</i> trafia do kolejki i jest ustalany.</li>
+    </ol>
+    <p>Dzięki temu ruch idzie w obie strony od przesuwanego wierzchołka
+        („łańcuch dwustronny”) i kończy się na pierwszych wolnych krawędziach. Po
+        opróżnieniu kolejki punkty kontrolne podążają za swoimi wierzchołkami i
+        poprawiana jest ciągłość (rozdział 5).</p>
+
+    <h3>Sprawdzenie i wycofanie</h3>
+    <p>Propagacja nie gwarantuje sukcesu – np. gdy wszystkie krawędzie mają
+        ograniczenia, łańcuch obiega wielokąt i trafia na ustalony wierzchołek. Po
+        każdej operacji <code>constraintsSatisfied()</code> sprawdza wszystkie
+        ograniczenia sceny:</p>
+    <ul>
+        <li>długość: |długość − L| &lt; 0.01,</li>
+        <li>prostopadłość: |cos kąta| = |u·v| / (|u|·|v|) &lt; 0.001 (cosinus nie
+            zależy od długości krawędzi).</li>
+    </ul>
+    <p>Jeśli coś nie jest spełnione:</p>
+    <ul>
+        <li><b>przesuwanie wierzchołka</b> – przywracana jest kopia wielokąta, a
+            cały wielokąt przesuwa się o wektor ruchu kursora. Przesunięcie zachowuje
+            wszystkie długości, kierunki i kształty krzywych, także względem innych
+            wielokątów;</li>
+        <li><b>dodawanie ograniczenia</b> – przywracana jest kopia całej sceny, a
+            użytkownik dostaje komunikat.</li>
+    </ul>
+
+    <h3>Dodawanie długości</h3>
+    <p>Początek krawędzi zostaje w miejscu, koniec przesuwa się wzdłuż krawędzi
+        na zadaną odległość, a dalej działa propagacja od końca (z ustalonym
+        początkiem).</p>
+
+    <h3>Dodawanie prostopadłości</h3>
+    <p>Odrzucane są: ta sama krawędź dwa razy, krawędź zdegenerowana, krawędź
+        niebędąca odcinkiem i para, która już ma to ograniczenie. Jeśli krawędzie są
+        już prostopadłe, ograniczenie jest tylko zapisywane. W przeciwnym razie
+        próbujemy kolejno:</p>
+    <ol>
+        <li>obrócić drugą krawędź wokół jej początku,</li>
+        <li>obrócić drugą krawędź wokół jej końca,</li>
+        <li>obrócić pierwszą krawędź wokół jej początku,</li>
+        <li>obrócić pierwszą krawędź wokół jej końca.</li>
+    </ol>
+    <p>Obrót zachowuje długość krawędzi i wybiera tę z dwóch normalnych do
+        partnera, która jest bliżej obecnego kierunku (obrót &lt; 90°). Po obrocie
+        działa propagacja, a potem sprawdzenie. Pierwsza udana próba wygrywa; jeśli
+        żadna się nie uda (np. sprzeczny zestaw A ⊥ B, B ⊥ C, C ⊥ A), scena wraca do
+        stanu sprzed operacji.</p>
+
+    <h2><a name="ciaglosc"></a>5. Ciągłość w wierzchołkach</h2>
+
+    <h3>Styczne</h3>
+    <p>Ciągłość w wierzchołku <i>V</i> porównuje styczne (pochodne) krawędzi
+        wchodzącej i wychodzącej, skierowane zgodnie z obiegiem wielokąta:</p>
+    <table>
+        <tr>
+            <th></th>
+            <th>krawędź wchodząca do V</th>
+            <th>krawędź wychodząca z V</th>
+        </tr>
+        <tr>
+            <td>Bézier P0, c0, c1, P3</td>
+            <td><code>B'(1) = 3·(V − c1)</code></td>
+            <td><code>B'(0) = 3·(c0 − V)</code></td>
+        </tr>
+        <tr>
+            <td>odcinek S → E</td>
+            <td><code>V − S</code></td>
+            <td><code>E − V</code></td>
+        </tr>
+    </table>
+    <ul>
+        <li><b>G0</b> – wspólny punkt (zawsze spełnione),</li>
+        <li><b>G1</b> – styczne mają ten sam kierunek,</li>
+        <li><b>C1</b> – styczne są równymi wektorami.</li>
+    </ul>
+
+    <h3>Wzorzec i strona dostosowująca się</h3>
+    <p>W wierzchołku jedna strona jest wzorcem o stycznej <i>t</i>, a druga się
+        dostosowuje – zmienia się jeden jej punkt przy <i>V</i>
+        (<i>d</i> = <i>t</i> / |<i>t</i>|):</p>
+    <table>
+        <tr>
+            <th>dostosowuje się</th>
+            <th>C1</th>
+            <th>G1</th>
+        </tr>
+        <tr>
+            <td>Bézier wychodzący (c0)</td>
+            <td><code>c0 = V + t/3</code></td>
+            <td><code>c0 = V + d·|c0 − V|</code></td>
+        </tr>
+        <tr>
+            <td>Bézier wchodzący (c1)</td>
+            <td><code>c1 = V − t/3</code></td>
+            <td><code>c1 = V − d·|V − c1|</code></td>
+        </tr>
+        <tr>
+            <td>odcinek wychodzący (koniec E)</td>
+            <td><code>E = V + t</code></td>
+            <td><code>E = V + d·|E − V|</code></td>
+        </tr>
+        <tr>
+            <td>odcinek wchodzący (początek S)</td>
+            <td><code>S = V − t</code></td>
+            <td><code>S = V − d·|V − S|</code></td>
+        </tr>
+    </table>
+    <p>Gdy dostosowuje się odcinek, przesuwa się wierzchołek, więc dalej działa
+        propagacja ograniczeń (z ustalonym <i>V</i>).</p>
+
+    <h3>Kto jest wzorcem</h3>
+    <ul>
+        <li><b>Przesuwanie wierzchołka</b> – punkty kontrolne przy wierzchołku
+            przesuwają się razem z nim. Potem w każdym wierzchołku z G1/C1 odcinek
+            jest wzorcem dla krzywej, a między dwiema krzywymi wzorcem jest
+            wchodząca. W tym przebiegu zawsze dostosowuje się krzywa, więc ruszają
+            się tylko punkty kontrolne – dlatego wywołania nie zapętlają się.</li>
+        <li><b>Przesuwanie punktu kontrolnego</b> – przeciągany punkt jest wzorcem.
+            Sąsiednia krzywa obraca swój punkt kontrolny (przy C1 – odbicie
+            symetryczne względem <i>V</i>), sąsiedni odcinek obraca się (przy C1
+            także zmienia długość).</li>
+        <li><b>Blokada</b> – jeśli sąsiedni odcinek nie może się dostosować (ma
+            prostopadłość albo przy C1 musiałby zmienić stałą długość), zmiana jest
+            cofana, a punkt kontrolny dostosowuje się do odcinka: przy G1 ślizga się
+            po stycznej, przy C1 stoi w punkcie <code>V ± t/3</code>.</li>
+        <li><b>Łuk</b> – zawsze dostosowuje się sam: jego kształt wynika ze stycznej
+            sąsiada, więc przy łuku nic nie jest przesuwane.</li>
+    </ul>
+
+    <h2><a name="rysowanie"></a>6. Algorytmy rysowania</h2>
+
+    <h3>Odcinki – algorytm Bresenhama</h3>
+    <p>Końce odcinka są raz zaokrąglane do pikseli, a dalej wszystkie obliczenia są
+        całkowitoliczbowe. Oś wiodąca to ta z większym przyrostem; w każdym kroku
+        przesuwamy się po niej o piksel, a o kroku po drugiej osi decyduje znak
+        zmiennej <i>d</i> (położenie punktu środkowego względem prostej):</p>
+    <ul>
+        <li>start: <code>d = 2·dy − dx</code>,</li>
+        <li><code>d &lt; 0</code>: krok tylko po osi wiodącej, <code>d += 2·dy</code>,</li>
+        <li><code>d ≥ 0</code>: krok po obu osiach, <code>d += 2·(dy − dx)</code>.</li>
+    </ul>
+    <p>Wszystkie 8 oktantów obsługuje zamiana ról osi (linie strome) i znaki
+        kroku <i>sx</i>, <i>sy</i>. Piksele są rysowane piórem o szerokości 1.</p>
+
+    <h3>Krzywa Béziera – algorytm przyrostowy</h3>
+    <p>Krzywa jest zamieniana na bazę potęgową
+        <code>B(t) = a·t³ + b·t² + c·t + d</code>, gdzie
+    </p>
+    <ul>
+        <li><code>a = −P0 + 3·P1 − 3·P2 + P3</code>,</li>
+        <li><code>b = 3·P0 − 6·P1 + 3·P2</code>,</li>
+        <li><code>c = −3·P0 + 3·P1</code>,</li>
+        <li><code>d = P0</code>.</li>
+    </ul>
+    <p>Kolejne punkty dla kroku <i>h</i> = 1/<i>n</i> są liczone różnicami w
+        przód (trzy dodawania wektorów na punkt):</p>
+    <ul>
+        <li><code>Δ¹ = a·h³ + b·h² + c·h</code>,
+            <code>Δ² = 6a·h³ + 2b·h²</code>, <code>Δ³ = 6a·h³</code>,
+        </li>
+        <li>w każdym kroku: <code>P += Δ¹; Δ¹ += Δ²; Δ² += Δ³</code>.</li>
+    </ul>
+    <p>Liczba kroków to długość łamanej kontrolnej / 3 (punkt co ok. 3 px),
+        ograniczona do [8, 1000]. Ostatni punkt jest ustawiany dokładnie na P3, żeby
+        usunąć narosły błąd zaokrągleń.</p>
+
+    <h3>Łuk okręgu</h3>
+    <ul>
+        <li><b>G0 na obu końcach</b> – półokrąg o środku w połowie cięciwy i
+            promieniu |AB| / 2.</li>
+        <li><b>G1 w początku A ze styczną t</b> – środek leży na prostej przez A
+            prostopadłej do t (promień jest prostopadły do stycznej):
+            <code>C = A + s·n</code>. Warunek |C − A| = |C − B| daje
+            <code>s = |AB|² / (2·n·(B − A))</code>. Kierunek obiegu jest wybierany
+            tak, żeby ruch po okręgu w A miał kierunek t. Gdy B leży na stycznej,
+            łuk zamienia się w odcinek.
+        </li>
+        <li><b>G1 w końcu B</b> – to ten sam łuk przebyty w drugą stronę: liczony
+            od B ze styczną −t, a potem odwracany.</li>
+    </ul>
+    <p>Łuk jest próbkowany co ok. 3 px długości i rysowany jako łamana.</p>
+
+    <h3>Trafianie myszą</h3>
+    <p>Kolejność: wierzchołki (promień 8 px), punkty kontrolne (8 px), krawędzie
+        (5 px od łamanej przybliżającej krawędź), wnętrze (otoczka wypukła – algorytm
+        Grahama).</p>
+
+    <h2><a name="demo"></a>7. Scena demonstracyjna</h2>
+    <ul>
+        <li><b>Czworokąt</b> – długości 230 i 200 na dwóch sąsiednich krawędziach
+            (łańcuch ograniczeń), lewa krawędź prostopadła do krawędzi drugiego
+            wielokąta, dolna krawędź jest krzywą Béziera z C1 na obu końcach.</li>
+        <li><b>Wielokąt samoprzecinający się</b> – dolna krawędź prostopadła do
+            czworokąta, górna krawędź jest łukiem G0–G0 (półokrąg).</li>
+        <li><b>Trzeci wielokąt</b> – górny łuk styczny (G1) do lewej, ukośnej
+            krawędzi.</li>
+    </ul>
+    <p>Scena jest tworzona w <code>Scene::createDemo()</code>. Nowy wielokąt to
+        jedno wywołanie <code>addPolygon({...})</code> z listą punktów; ograniczenia,
+        typy krawędzi i ciągłość ustawia się przez <code>setLengthConstraint</code>,
+        <code>setOrthogonalConstraint</code>, <code>setEdgeKind</code> i
+        <code>setContinuity</code>. Najpierw należy dodać wszystkie wielokąty, a dopiero
+        potem odwoływać się do ich krawędzi – dodanie wielokąta może przealokować
+        wektor wielokątów.
+    </p>
+
+</body>
+
+</html>
