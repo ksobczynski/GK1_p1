@@ -2,6 +2,7 @@
 #include "model/Constraint.h"
 #include "model/Edge.h"
 #include "model/Polygon.h"
+#include "model/Vertex.h"
 #include "render/Bezier.h"
 #include "render/LineDrawing.h"
 #include <QContextMenuEvent>
@@ -27,6 +28,24 @@ void drawEdgeLabel(QPainter &painter, QPointF a, QPointF b, const QString &text,
   const QPointF center = (a + b) / 2 + offset * normal;
   painter.drawText(QRectF(center - QPointF(60, 9), QSizeF(120, 18)),
                    Qt::AlignCenter, text);
+}
+
+const char *continuityName(model::Continuity continuity) {
+  switch (continuity) {
+  case model::Continuity::G0:
+    return "G0";
+  case model::Continuity::G1:
+    return "G1";
+  case model::Continuity::C1:
+    return "C1";
+  }
+  return "";
+}
+
+bool nearCurve(const model::Polygon &polygon, std::size_t v) {
+  const std::size_t n = polygon.vertices().size();
+  return polygon.edges()[v].kind == model::EdgeKind::Bezier ||
+         polygon.edges()[(v + n - 1) % n].kind == model::EdgeKind::Bezier;
 }
 } // namespace
 
@@ -69,8 +88,14 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
 
     painter.setPen(Qt::black);
     painter.setBrush(Qt::white);
-    for (const model::Vertex &vertex : polygon.vertices())
+    const std::size_t n = polygon.vertices().size();
+    for (std::size_t v = 0; v < n; ++v) {
+      const model::Vertex &vertex = polygon.vertices()[v];
       painter.drawEllipse(vertex.position, 5, 5);
+      if (nearCurve(polygon, v))
+        painter.drawText(vertex.position + QPointF(8, -8),
+                         continuityName(vertex.continuity));
+    }
   }
 
   if (pendingOrthogonal_) {
@@ -255,10 +280,29 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
   if (hit->kind == Hit::Kind::Vertex) {
     QAction *removeVertexAction = menu.addAction("Usun wierzcholek");
     removeVertexAction->setEnabled(polygon->vertices().size() > 3);
+    const model::Vertex *vertex = polygon->findVertex(hit->vertex);
+    const std::size_t index =
+        static_cast<std::size_t>(vertex - polygon->vertices().data());
+    QMenu *continuityMenu = menu.addMenu("Ciaglosc");
+    continuityMenu->setEnabled(nearCurve(*polygon, index));
+    for (const model::Continuity value :
+         {model::Continuity::G0, model::Continuity::G1,
+          model::Continuity::C1}) {
+      QAction *action = continuityMenu->addAction(continuityName(value));
+      action->setCheckable(true);
+      action->setChecked(vertex->continuity == value);
+      action->setData(static_cast<int>(value));
+    }
 
-    if (menu.exec(event->globalPos()) == removeVertexAction) {
+    QAction *chosen = menu.exec(event->globalPos());
+    if (chosen == removeVertexAction) {
       scene_.removeVertex(hit->polygon, hit->vertex);
       dragState_.reset();
+      update();
+    } else if (chosen && chosen->data().isValid()) {
+      scene_.setContinuity(
+          hit->polygon, hit->vertex,
+          static_cast<model::Continuity>(chosen->data().toInt()));
       update();
     }
   } else if (hit->kind == Hit::Kind::Edge) {

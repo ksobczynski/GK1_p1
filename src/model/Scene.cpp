@@ -2,10 +2,13 @@
 #include "model/Constraint.h"
 #include "model/Edge.h"
 #include "model/Polygon.h"
+#include "model/Vertex.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <optional>
+#include <vector>
 
 namespace model {
 namespace {
@@ -23,6 +26,26 @@ QPointF pointAtDistance(QPointF a, QPointF b, double length) {
     return a + QPointF(length, 0);
 
   return a + (b - a) * (length / current);
+}
+
+double norm(QPointF v) { return std::hypot(v.x(), v.y()); }
+
+QPointF incomingTangent(const Polygon &polygon, std::size_t v) {
+  const std::size_t n = polygon.vertices().size();
+  const Edge &edge = polygon.edges()[(v + n - 1) % n];
+  const QPointF V = polygon.vertices()[v].position;
+  if (edge.kind == EdgeKind::Bezier)
+    return 3 * (V - edge.controls[1]);
+  return V - polygon.vertices()[(v + n - 1) % n].position;
+}
+
+QPointF outgoingTangent(const Polygon &polygon, std::size_t v) {
+  const std::size_t n = polygon.vertices().size();
+  const Edge &edge = polygon.edges()[v];
+  const QPointF V = polygon.vertices()[v].position;
+  if (edge.kind == EdgeKind::Bezier)
+    return 3 * (edge.controls[0] - V);
+  return polygon.vertices()[(v + 1) % n].position - V;
 }
 } // namespace
 
@@ -111,8 +134,8 @@ Scene Scene::createDemo() {
 
   const model::EdgeRef curve{quad, edges[2].id};
   scene.setEdgeKind(curve, EdgeKind::Bezier);
-  scene.moveControlPoint(curve, 0, {260, 420});
-  scene.moveControlPoint(curve, 1, {140, 420});
+  // scene.moveControlPoint(curve, 0, {260, 420});
+  // scene.moveControlPoint(curve, 1, {140, 420});
 
   const auto &bowtieEdges = scene.findPolygon(bowtie)->edges();
   scene.setLengthConstraint({quad, edges[0].id}, 230);
@@ -298,6 +321,8 @@ void Scene::propagate(Polygon &polygon, const std::vector<Vertex> &before,
       queue.push_back(neighbour);
     }
   }
+  followControlPoints(polygon, before);
+  enforceContinuityEverywhere(polygon);
 }
 
 bool Scene::hasOrthogonalConstraint(EdgeRef edge) const {
@@ -464,11 +489,124 @@ bool Scene::setEdgeKind(EdgeRef ref, EdgeKind kind) {
     return false;
   if (kind != EdgeKind::Segment)
     removeConstraintsOf(ref);
+  enforceContinuityEverywhere(*polygon);
   return true;
 }
 
 void Scene::moveControlPoint(EdgeRef ref, std::size_t index, QPointF position) {
-  if (Polygon *polygon = findPolygon(ref.polygon))
+  Polygon *polygon = findPolygon(ref.polygon);
+  if (!polygon)
+    return;
+  const Edge *edge = polygon->findEdge(ref.edge);
+  if (!edge || edge->kind != EdgeKind::Bezier)
+    return;
+
+  const std::size_t n = polygon->vertices().size();
+  const std::size_t e =
+      static_cast<std::size_t>(edge - polygon->edges().data());
+  const std::size_t vertex = index == 0 ? e : (e + 1) % n;
+  const Side dragged = index == 0 ? Side::Outgoing : Side::Incoming;
+  const Side other = index == 0 ? Side::Incoming : Side::Outgoing;
+
+  const Polygon backup = *polygon;
+  polygon->moveControlPoint(ref.edge, index, position);
+
+  enforceContinuity(*polygon, vertex, dragged);
+
+  if (!constraintsSatisfied()) {
+    *polygon = backup;
     polygon->moveControlPoint(ref.edge, index, position);
+    enforceContinuity(*polygon, vertex, other);
+  }
+}
+
+void Scene::setContinuity(PolygonId polygonId, VertexId vertexId,
+                          Continuity continuity) {
+  Polygon *polygon = findPolygon(polygonId);
+  if (!polygon || !polygon->setContinuity(vertexId, continuity))
+    return;
+  enforceContinuityEverywhere(*polygon);
+}
+
+void Scene::followControlPoints(Polygon &polygon,
+                                const std::vector<Vertex> &before) {
+  const std::size_t n = polygon.vertices().size();
+  for (std::size_t v = 0; v < n; ++v) {
+    const QPointF delta = polygon.vertices()[v].position - before[v].position;
+    if (norm(delta) < lengthEpsilon)
+      continue;
+
+    const Edge &outgoing = polygon.edges()[v];
+    const Edge &incoming = polygon.edges()[(v + n - 1) % n];
+    if (outgoing.kind == EdgeKind::Bezier)
+      polygon.moveControlPoint(outgoing.id, 0, outgoing.controls[0] + delta);
+    if (incoming.kind == EdgeKind::Bezier)
+      polygon.moveControlPoint(incoming.id, 1, incoming.controls[1] + delta);
+  }
+}
+void Scene::enforceContinuityEverywhere(Polygon &polygon) {
+  const std::size_t n = polygon.vertices().size();
+  for (std::size_t v = 0; v < n; ++v) {
+    const bool incomingCurve =
+        polygon.edges()[(v + n - 1) % n].kind == EdgeKind::Bezier;
+    const bool outgoingCurve = polygon.edges()[v].kind == EdgeKind::Bezier;
+    if (incomingCurve && !outgoingCurve)
+      enforceContinuity(polygon, v, Side::Outgoing);
+    else if (outgoingCurve)
+      enforceContinuity(polygon, v, Side::Incoming);
+  }
+}
+
+void Scene::enforceContinuity(Polygon &polygon, std::size_t v, Side master) {
+  const std::size_t n = polygon.vertices().size();
+  const Vertex &vertex = polygon.vertices()[v];
+  const std::size_t in = (v + n - 1) % n;
+  const Edge &incoming = polygon.edges()[in];
+  const Edge &outgoing = polygon.edges()[v];
+  if (vertex.continuity == Continuity::G0 ||
+      (incoming.kind != EdgeKind::Bezier && outgoing.kind != EdgeKind::Bezier))
+    return;
+  const QPointF tangent = master == Side::Incoming
+                              ? incomingTangent(polygon, v)
+                              : outgoingTangent(polygon, v);
+  const double tangentLength = norm(tangent);
+  if (tangentLength < lengthEpsilon)
+    return;
+  const QPointF direction = tangent / tangentLength;
+  const bool c1 = vertex.continuity == Continuity::C1;
+  const QPointF V = vertex.position;
+
+  if (master == Side::Incoming) {
+    if (outgoing.kind == EdgeKind::Bezier) {
+      const double keep = norm(outgoing.controls[0] - V);
+      polygon.moveControlPoint(outgoing.id, 0,
+                               V + (c1 ? tangent / 3 : direction * keep));
+
+    } else {
+      const std::size_t far = (v + 1) % n;
+      const double keep = norm(polygon.vertices()[far].position - V);
+      const std::vector<Vertex> before = polygon.vertices();
+      polygon.moveVertex(polygon.vertices()[far].id,
+                         V + (c1 ? tangent : direction * keep));
+      std::vector<bool> fixed(n, false);
+      fixed[v] = true;
+      propagate(polygon, before, {far}, fixed);
+    }
+  } else {
+    if (incoming.kind == EdgeKind::Bezier) {
+      const double keep = norm(V - incoming.controls[1]);
+      polygon.moveControlPoint(incoming.id, 1,
+                               V - (c1 ? tangent / 3 : direction * keep));
+    } else {
+      const std::size_t far = in;
+      const double keep = norm(V - polygon.vertices()[far].position);
+      const std::vector<Vertex> before = polygon.vertices();
+      polygon.moveVertex(polygon.vertices()[far].id,
+                         V - (c1 ? tangent : direction * keep));
+      std::vector<bool> fixed(n, false);
+      fixed[v] = true;
+      propagate(polygon, before, {far}, fixed);
+    }
+  }
 }
 } // namespace model

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Edge.h"
+#include "model/Vertex.h"
 #include <vector>
 
 namespace model {
@@ -24,6 +25,8 @@ public:
 
   bool setEdgeKind(EdgeId id, EdgeKind kind);
   bool moveControlPoint(EdgeId id, std::size_t index, QPointF position);
+
+  bool setContinuity(VertexId id, Continuity continuity);
 
 private:
   PolygonId id_;

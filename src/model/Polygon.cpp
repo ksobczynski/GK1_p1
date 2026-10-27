@@ -1,5 +1,6 @@
 #include "Polygon.h"
 #include "model/Edge.h"
+#include "model/Vertex.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -152,6 +153,12 @@ bool Polygon::setEdgeKind(EdgeId id, EdgeKind kind) {
 
   edge->kind = kind;
   if (kind == EdgeKind::Bezier) {
+
+    for (Vertex &v : vertices_) {
+      if ((v.id == edge->start || v.id == edge->end) && !v.continuityExplicit) {
+        v.continuity = Continuity::C1;
+      }
+    }
     const QPointF a = findVertex(edge->start)->position;
     const QPointF b = findVertex(edge->end)->position;
     edge->controls = {a + (b - a) / 3, a + 2 * (b - a) / 3};
@@ -165,5 +172,16 @@ bool Polygon::moveControlPoint(EdgeId id, std::size_t index, QPointF position) {
     return false;
   edge->controls[index] = position;
   return true;
+}
+
+bool Polygon::setContinuity(VertexId id, Continuity continuity) {
+  for (Vertex &v : vertices_) {
+    if (v.id == id) {
+      v.continuity = continuity;
+      v.continuityExplicit = true;
+      return true;
+    }
+  }
+  return false;
 }
 } // namespace model
