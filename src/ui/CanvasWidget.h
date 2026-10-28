@@ -12,6 +12,11 @@ public:
     lineAlgorithm_ = algorithm;
     update();
   }
+  enum class BSplineMode { Off, Curve, Helpers };
+  void setBSplineMode(BSplineMode mode) {
+    bsplineMode_ = mode;
+    update();
+  }
 
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -43,4 +48,5 @@ private:
   std::optional<DragState> dragState_;
   std::optional<model::EdgeRef> pendingOrthogonal_;
   render::LineAlgorithm lineAlgorithm_ = render::LineAlgorithm::Library;
+  BSplineMode bsplineMode_ = BSplineMode::Off;
 };

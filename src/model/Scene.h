@@ -35,6 +35,9 @@ public:
 
   bool setContinuity(PolygonId polygon, VertexId vertex, Continuity continuity);
 
+  bool hideEdge(EdgeRef edge);
+  bool showHiddenEdge(PolygonId polygon);
+
 private:
   // void enforceLengths(Polygon &polygon, std::size_t origin,
   // std::vector<bool> fixed);

@@ -537,6 +537,8 @@ bool Scene::setContinuity(PolygonId polygonId, VertexId vertexId,
   const std::size_t n = polygon->vertices().size();
   const std::size_t v =
       static_cast<std::size_t>(vertex - polygon->vertices().data());
+  if (continuity != Continuity::G0 && polygon->isOpenEnd(v))
+    return false;
   const bool arcIn = polygon->edges()[(v + n - 1) % n].kind == EdgeKind::Arc;
   const bool arcOut = polygon->edges()[v].kind == EdgeKind::Arc;
   if (continuity != Continuity::G0 && (arcIn || arcOut)) {
@@ -552,6 +554,19 @@ bool Scene::setContinuity(PolygonId polygonId, VertexId vertexId,
   polygon->setContinuity(vertexId, continuity);
   enforceContinuityEverywhere(*polygon);
   return true;
+}
+
+bool Scene::hideEdge(EdgeRef ref) {
+  Polygon *polygon = findPolygon(ref.polygon);
+  if (!polygon || !polygon->hideEdge(ref.edge))
+    return false;
+  removeConstraintsOf(ref);
+  return true;
+}
+
+bool Scene::showHiddenEdge(PolygonId polygonId) {
+  Polygon *polygon = findPolygon(polygonId);
+  return polygon && polygon->showHiddenEdge();
 }
 
 void Scene::followControlPoints(Polygon &polygon,

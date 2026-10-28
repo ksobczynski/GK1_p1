@@ -31,6 +31,8 @@ add_executable(p1
     src/render/Bezier.cpp
     src/render/Arc.h
     src/render/Arc.cpp
+    src/render/BSpline.h
+    src/render/BSpline.cpp
     src/ui/HelpDialog.h
     src/ui/HelpDialog.cpp
     resources.qrc

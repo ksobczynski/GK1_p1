@@ -4,6 +4,7 @@
 #include "model/Polygon.h"
 #include "model/Vertex.h"
 #include "render/Arc.h"
+#include "render/BSpline.h"
 #include "render/Bezier.h"
 #include "render/LineDrawing.h"
 #include <QContextMenuEvent>
@@ -45,6 +46,8 @@ const char *continuityName(model::Continuity continuity) {
 
 bool nearCurve(const model::Polygon &polygon, std::size_t v) {
   const std::size_t n = polygon.vertices().size();
+  if (polygon.isOpenEnd(v))
+    return false;
   return polygon.edges()[v].kind != model::EdgeKind::Segment ||
          polygon.edges()[(v + n - 1) % n].kind != model::EdgeKind::Segment;
 }
@@ -71,6 +74,49 @@ std::vector<QPointF> edgePoints(const model::Polygon &polygon, std::size_t e) {
   }
   return {a, b};
 }
+
+QColor segmentColor(std::size_t i) {
+  return QColor::fromHsv(static_cast<int>((i * 137) % 360), 220, 210);
+}
+
+QColor helperColor(std::size_t i) {
+  return QColor::fromHsv(static_cast<int>((i * 137) % 360), 90, 235);
+}
+
+std::vector<render::BezierSegment>
+bsplineSegments(const model::Polygon &polygon) {
+  return render::bsplineToBezier(polygon.chainPoints(),
+                                 !polygon.hiddenEdgeIndex());
+}
+
+void drawBSplineCurve(QPainter &painter, const model::Polygon &polygon) {
+  const std::vector<render::BezierSegment> segments = bsplineSegments(polygon);
+  painter.save();
+  for (std::size_t i = 0; i < segments.size(); ++i) {
+    const render::BezierSegment &s = segments[i];
+    painter.setPen(QPen(segmentColor(i), 2));
+    render::drawBezier(painter, s[0], s[1], s[2], s[3]);
+  }
+  painter.restore();
+}
+
+void drawBSplineHelpers(QPainter &painter, const model::Polygon &polygon) {
+  const std::vector<render::BezierSegment> segments = bsplineSegments(polygon);
+  painter.save();
+  for (std::size_t i = 0; i < segments.size(); ++i) {
+    const render::BezierSegment &s = segments[i];
+    const QColor color = helperColor(i);
+    painter.setPen(QPen(color, 1));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawPolyline(s.data(), static_cast<int>(s.size()));
+
+    painter.setBrush(color);
+    for (const QPointF &point : {s[1], s[2]})
+      painter.drawRect(QRectF(point - QPointF(3, 3), QSizeF(6, 6)));
+    painter.drawEllipse(s[0], 3, 3);
+  }
+  painter.restore();
+}
 } // namespace
 
 CanvasWidget::CanvasWidget(model::Scene &scene, QWidget *parent)
@@ -86,6 +132,8 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
     painter.setPen(QPen(Qt::darkBlue, 2));
     for (std::size_t e = 0; e < polygon.edges().size(); ++e) {
       const model::Edge &edge = polygon.edges()[e];
+      if (edge.hidden)
+        continue;
       const QPointF a = polygon.findVertex(edge.start)->position;
       const QPointF b = polygon.findVertex(edge.end)->position;
       switch (edge.kind) {
@@ -125,6 +173,18 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
         painter.drawEllipse(control, 6, 6);
     }
     painter.restore();
+
+    switch (bsplineMode_) {
+    case BSplineMode::Curve:
+      drawBSplineCurve(painter, polygon);
+      break;
+    case BSplineMode::Helpers:
+      drawBSplineHelpers(painter, polygon);
+      drawBSplineCurve(painter, polygon);
+      break;
+    case BSplineMode::Off:
+      break;
+    }
 
     painter.setPen(Qt::black);
     painter.setBrush(Qt::white);
@@ -223,6 +283,8 @@ std::optional<CanvasWidget::Hit> CanvasWidget::hitTest(QPointF position) const {
 
   for (const model::Polygon &polygon : polygons) {
     for (std::size_t e = 0; e < polygon.edges().size(); ++e) {
+      if (polygon.edges()[e].hidden)
+        continue;
       const std::vector<QPointF> points = edgePoints(polygon, e);
       double distanceSquared = std::numeric_limits<double>::max();
       for (std::size_t i = 1; i < points.size(); i++)
@@ -328,11 +390,17 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
       if (value == model::Continuity::C1 && nextToArc(*polygon, index))
         action->setEnabled(false);
     }
+    QAction *showEdgeAction = nullptr;
+    if (polygon->isOpenEnd(index))
+      showEdgeAction = menu.addAction("Przywroc usunieta krawedz");
 
     QAction *chosen = menu.exec(event->globalPos());
     if (chosen == removeVertexAction) {
       scene_.removeVertex(hit->polygon, hit->vertex);
       dragState_.reset();
+      update();
+    } else if (chosen && chosen == showEdgeAction) {
+      scene_.showHiddenEdge(hit->polygon);
       update();
     } else if (chosen && chosen->data().isValid()) {
       if (!scene_.setContinuity(
@@ -367,6 +435,8 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
         scene_.lengthConstraint(edgeRef).has_value());
 
     QAction *orthogonalAction = menu.addAction("Prostopadła do...");
+    QAction *hideEdgeAction = menu.addAction("Usun krawedz (otworz wielokat)");
+    hideEdgeAction->setEnabled(!polygon->hiddenEdgeIndex());
 
     lengthAction->setEnabled(segment);
     orthogonalAction->setEnabled(segment);
@@ -402,6 +472,9 @@ void CanvasWidget::contextMenuEvent(QContextMenuEvent *event) {
       update();
     } else if (chosen == orthogonalAction) {
       pendingOrthogonal_ = edgeRef;
+      update();
+    } else if (chosen == hideEdgeAction) {
+      scene_.hideEdge(edgeRef);
       update();
     } else if (const auto it = std::find(std::begin(kindActions),
                                          std::end(kindActions), chosen);

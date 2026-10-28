@@ -14,5 +14,6 @@ struct Edge {
   VertexId end;
   EdgeKind kind = EdgeKind::Segment;
   std::array<QPointF, 2> controls{};
+  bool hidden = false;
 };
 } // namespace model

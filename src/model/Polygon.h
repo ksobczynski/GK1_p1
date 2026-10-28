@@ -29,6 +29,12 @@ public:
 
   bool setContinuity(VertexId id, Continuity continuity);
 
+  bool hideEdge(EdgeId id);
+  bool showHiddenEdge();
+  std::optional<std::size_t> hiddenEdgeIndex() const;
+  bool isOpenEnd(std::size_t v) const;
+  std::vector<QPointF> chainPoints() const;
+
   QPointF incomingTangent(std::size_t v) const;
   QPointF outgoingTangent(std::size_t v) const;
 
@@ -41,6 +47,7 @@ public:
 
 private:
   bool nextToArc(VertexId id) const;
+  void resetOpenEnds();
   PolygonId id_;
   VertexId nextVertexId_ = 1;
   EdgeId nextEdgeId_ = 1;

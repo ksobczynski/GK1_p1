@@ -54,7 +54,7 @@ void Polygon::translate(double dx, double dy) {
 bool Polygon::insertVertexAtEdgeMidpoint(EdgeId id) {
   auto it = std::find_if(edges_.begin(), edges_.end(),
                          [id](const Edge &e) { return e.id == id; });
-  if (it == edges_.end())
+  if (it == edges_.end() || it->hidden)
     return false;
 
   const std::size_t index = static_cast<std::size_t>(it - edges_.begin());
@@ -171,8 +171,9 @@ bool Polygon::setEdgeKind(EdgeId id, EdgeKind kind) {
   if (kind == EdgeKind::Bezier) {
 
     for (Vertex &v : vertices_) {
+      const std::size_t index = static_cast<std::size_t>(&v - vertices_.data());
       if ((v.id == edge->start || v.id == edge->end) && !v.continuityExplicit &&
-          !nextToArc(v.id)) {
+          !nextToArc(v.id) && !isOpenEnd(index)) {
         v.continuity = Continuity::C1;
       }
     }
@@ -200,6 +201,58 @@ bool Polygon::setContinuity(VertexId id, Continuity continuity) {
     }
   }
   return false;
+}
+
+bool Polygon::hideEdge(EdgeId id) {
+  if (hiddenEdgeIndex())
+    return false;
+  Edge *edge = findEdgeMutable(id);
+  if (!edge)
+    return false;
+  edge->kind = EdgeKind::Segment;
+  edge->hidden = true;
+  resetOpenEnds();
+  return true;
+}
+
+bool Polygon::showHiddenEdge() {
+  const std::optional<std::size_t> hidden = hiddenEdgeIndex();
+  if (!hidden)
+    return false;
+  edges_[*hidden].hidden = false;
+  return true;
+}
+
+std::optional<std::size_t> Polygon::hiddenEdgeIndex() const {
+  for (std::size_t e = 0; e < edges_.size(); ++e)
+    if (edges_[e].hidden)
+      return e;
+  return std::nullopt;
+}
+
+bool Polygon::isOpenEnd(std::size_t v) const {
+  const std::size_t n = vertices_.size();
+  return edges_[v].hidden || edges_[(v + n - 1) % n].hidden;
+}
+
+std::vector<QPointF> Polygon::chainPoints() const {
+  const std::size_t n = vertices_.size();
+  const std::optional<std::size_t> hidden = hiddenEdgeIndex();
+  const std::size_t first = hidden ? (*hidden + 1) % n : 0;
+  std::vector<QPointF> points;
+  points.reserve(n);
+  for (std::size_t i = 0; i < n; ++i)
+    points.push_back(vertices_[(first + i) % n].position);
+  return points;
+}
+
+void Polygon::resetOpenEnds() {
+  for (std::size_t v = 0; v < vertices_.size(); ++v) {
+    if (!isOpenEnd(v))
+      continue;
+    vertices_[v].continuity = Continuity::G0;
+    vertices_[v].continuityExplicit = false;
+  }
 }
 
 bool Polygon::nextToArc(VertexId id) const {

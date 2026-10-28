@@ -34,6 +34,33 @@ MainWindow::MainWindow(model::Scene &scene, QWidget *parent)
   });
 
   toolbar->addSeparator();
+  toolbar->addWidget(new QLabel("B-spline:"));
+  auto *bsplineOff = new QRadioButton("Wyłączone");
+  auto *bsplineCurve = new QRadioButton("Pokaż B-spline");
+  auto *bsplineHelpers = new QRadioButton("Pokaż pomocnicze wierzchołki");
+
+  bsplineOff->setChecked(true);
+  toolbar->addWidget(bsplineOff);
+  toolbar->addWidget(bsplineCurve);
+  toolbar->addWidget(bsplineHelpers);
+
+  auto *bsplineGroup = new QButtonGroup(this);
+  bsplineGroup->addButton(bsplineOff);
+  bsplineGroup->addButton(bsplineCurve);
+  bsplineGroup->addButton(bsplineHelpers);
+
+  const std::pair<QRadioButton *, CanvasWidget::BSplineMode> bsplineModes[] = {
+      {bsplineOff, CanvasWidget::BSplineMode::Off},
+      {bsplineCurve, CanvasWidget::BSplineMode::Curve},
+      {bsplineHelpers, CanvasWidget::BSplineMode::Helpers}};
+  for (const auto &[button, mode] : bsplineModes)
+    connect(button, &QRadioButton::toggled, this,
+            [this, mode = mode](bool checked) {
+              if (checked)
+                canvas_->setBSplineMode(mode);
+            });
+
+  toolbar->addSeparator();
   QAction *helpAction = toolbar->addAction("Pomoc (F1)");
   helpAction->setShortcut(Qt::Key_F1);
   connect(helpAction, &QAction::triggered, this, &MainWindow::showHelp);
